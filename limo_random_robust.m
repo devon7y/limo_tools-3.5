@@ -1276,15 +1276,19 @@ switch type
                 array = find(~isnan(centered_data(:,1,1,1)));
 
                 % preallocation for parfor
-                if type ==1
+                if type == 1
                     tmp_boot_H0_Rep_ANOVA_sub = NaN(size(centered_data,1),size(centered_data,2),1,2);
+                    H0_Rep_ANOVA_Gp_effect_sub = []; % Not used but initialize
+                    tmp_boot_H0_Rep_ANOVA_Interaction_with_gp_sub = []; % Not used but initialize
                 elseif type == 2
                     tmp_boot_H0_Rep_ANOVA_sub = NaN(size(centered_data,1),size(centered_data,2),length(C),2);
+                    H0_Rep_ANOVA_Gp_effect_sub = []; % Not used but initialize
+                    tmp_boot_H0_Rep_ANOVA_Interaction_with_gp_sub = []; % Not used but initialize
                 elseif type == 3
                     tmp_boot_H0_Rep_ANOVA_sub = NaN(size(centered_data,1),size(centered_data,2),1,2);
                     H0_Rep_ANOVA_Gp_effect_sub = NaN(size(centered_data,1),size(centered_data,2),2);
                     tmp_boot_H0_Rep_ANOVA_Interaction_with_gp_sub = NaN(size(centered_data,1),size(centered_data,2),1,2);
-                else
+                else % type == 4
                     tmp_boot_H0_Rep_ANOVA_sub = NaN(size(centered_data,1),size(centered_data,2),length(C),2);
                     H0_Rep_ANOVA_Gp_effect_sub = NaN(size(centered_data,1),size(centered_data,2),2);
                     tmp_boot_H0_Rep_ANOVA_Interaction_with_gp_sub = NaN(size(centered_data,1),size(centered_data,2),length(C),2);
@@ -1379,7 +1383,7 @@ switch type
                 if strcmp(LIMO.Analysis,'Time-Frequency') ||  strcmp(LIMO.Analysis,'ITC')
                     H0_Rep_ANOVA = limo_tf_5d_reshape(H0_Rep_ANOVA);
                 end
-                save(['H0', filesep, name],'H0_Rep_ANOVA', '-v7.3');
+                save_H0_Rep_ANOVA_batched(H0_Rep_ANOVA, ['H0', filesep, name], 100);
             end
             
             if type == 3 || type ==4
@@ -1390,13 +1394,13 @@ switch type
                     if strcmp(LIMO.Analysis,'Time-Frequency') ||  strcmp(LIMO.Analysis,'ITC')
                         H0_Rep_ANOVA_Interaction_with_gp = limo_tf_5d_reshape(H0_Rep_ANOVA_Interaction_with_gp);
                     end
-                    save(['H0', filesep, name],'H0_Rep_ANOVA_Interaction_with_gp', '-v7.3'); clear H0_Rep_ANOVA_Interaction_with_gp;
+                    save_H0_Interaction_batched(H0_Rep_ANOVA_Interaction_with_gp, ['H0', filesep, name], 100);
                 end
                 
                 if strcmp(LIMO.Analysis,'Time-Frequency') ||  strcmp(LIMO.Analysis,'ITC')
                     H0_Rep_ANOVA_Gp_effect = limo_tf_5d_reshape(H0_Rep_ANOVA_Gp_effect);
                 end
-                save(['H0', filesep, 'H0_Rep_ANOVA_Gp_effect'], 'H0_Rep_ANOVA_Gp_effect', '-v7.3');
+                save_H0_Gp_effect_batched(H0_Rep_ANOVA_Gp_effect, ['H0', filesep, 'H0_Rep_ANOVA_Gp_effect'], 100);
             end
         end
         LIMO.design.bootstrap = LIMO.design.bootstrap;
@@ -1420,5 +1424,145 @@ switch type
         disp('Repeated Measures ANOVA done')
 end
 warning on
+
+% ADD THESE FUNCTIONS AFTER LINE 85 (after the main function documentation)
+% Before the "warning off" line
+
+% =========================================================================
+% BATCHED SAVING FUNCTIONS FOR LARGE H0 FILES
+% =========================================================================
+
+function save_H0_Rep_ANOVA_batched(H0_data, filepath, batch_size)
+    % Helper function to save large H0 arrays in batches to avoid corruption
+    if nargin < 3
+        batch_size = 100;  % Default to 100 bootstraps per batch
+    end
+    
+    dims = size(H0_data);
+    n_bootstraps = dims(end);
+    
+    % If small enough, use regular save
+    if n_bootstraps <= 200
+        H0_Rep_ANOVA = H0_data;
+        save(filepath, 'H0_Rep_ANOVA', '-v7.3');
+        return;
+    end
+    
+    % For large arrays, save in batches
+    fprintf('    Using batched save: %d bootstraps in batches of %d\n', n_bootstraps, batch_size);
+    
+    % Create a matfile with proper dimensions
+    if exist(filepath, 'file')
+        delete(filepath);
+    end
+    
+    m = matfile(filepath, 'Writable', true);
+    m.H0_Rep_ANOVA = NaN(dims);
+    
+    % Write data in batches
+    n_batches = ceil(n_bootstraps / batch_size);
+    for batch = 1:n_batches
+        start_idx = (batch-1) * batch_size + 1;
+        end_idx = min(batch * batch_size, n_bootstraps);
+        
+        fprintf('    Writing batch %d/%d (bootstraps %d-%d)...', batch, n_batches, start_idx, end_idx);
+        
+        try
+            if length(dims) == 4
+                m.H0_Rep_ANOVA(:,:,:,start_idx:end_idx) = H0_data(:,:,:,start_idx:end_idx);
+            elseif length(dims) == 5
+                m.H0_Rep_ANOVA(:,:,:,:,start_idx:end_idx) = H0_data(:,:,:,:,start_idx:end_idx);
+            end
+            fprintf(' OK\n');
+        catch ME
+            fprintf(' FAILED: %s\n', ME.message);
+            error('Batch save failed at batch %d', batch);
+        end
+    end
+    
+    fprintf('    Batched save completed successfully\n');
+end
+
+function save_H0_Interaction_batched(H0_data, filepath, batch_size)
+    % Helper function for interaction effects
+    if nargin < 3
+        batch_size = 100;
+    end
+    
+    dims = size(H0_data);
+    n_bootstraps = dims(end);
+    
+    if n_bootstraps <= 200
+        H0_Rep_ANOVA_Interaction_with_gp = H0_data;
+        save(filepath, 'H0_Rep_ANOVA_Interaction_with_gp', '-v7.3');
+        return;
+    end
+    
+    fprintf('    Using batched save for interaction: %d bootstraps\n', n_bootstraps);
+    
+    if exist(filepath, 'file')
+        delete(filepath);
+    end
+    
+    m = matfile(filepath, 'Writable', true);
+    m.H0_Rep_ANOVA_Interaction_with_gp = NaN(dims);
+    
+    n_batches = ceil(n_bootstraps / batch_size);
+    for batch = 1:n_batches
+        start_idx = (batch-1) * batch_size + 1;
+        end_idx = min(batch * batch_size, n_bootstraps);
+        
+        try
+            if length(dims) == 4
+                m.H0_Rep_ANOVA_Interaction_with_gp(:,:,:,start_idx:end_idx) = H0_data(:,:,:,start_idx:end_idx);
+            elseif length(dims) == 5
+                m.H0_Rep_ANOVA_Interaction_with_gp(:,:,:,:,start_idx:end_idx) = H0_data(:,:,:,:,start_idx:end_idx);
+            end
+        catch ME
+            error('Batch save failed at batch %d: %s', batch, ME.message);
+        end
+    end
+end
+
+function save_H0_Gp_effect_batched(H0_data, filepath, batch_size)
+    % Helper function for group effects
+    if nargin < 3
+        batch_size = 100;
+    end
+    
+    dims = size(H0_data);
+    n_bootstraps = dims(end);
+    
+    if n_bootstraps <= 200
+        H0_Rep_ANOVA_Gp_effect = H0_data;
+        save(filepath, 'H0_Rep_ANOVA_Gp_effect', '-v7.3');
+        return;
+    end
+    
+    fprintf('    Using batched save for group effect: %d bootstraps\n', n_bootstraps);
+    
+    if exist(filepath, 'file')
+        delete(filepath);
+    end
+    
+    m = matfile(filepath, 'Writable', true);
+    m.H0_Rep_ANOVA_Gp_effect = NaN(dims);
+    
+    n_batches = ceil(n_bootstraps / batch_size);
+    for batch = 1:n_batches
+        start_idx = (batch-1) * batch_size + 1;
+        end_idx = min(batch * batch_size, n_bootstraps);
+        
+        try
+            m.H0_Rep_ANOVA_Gp_effect(:,:,:,start_idx:end_idx) = H0_data(:,:,:,start_idx:end_idx);
+        catch ME
+            error('Batch save failed at batch %d: %s', batch, ME.message);
+        end
+    end
+end
+
+% =========================================================================
+
+end
 
 
