@@ -411,6 +411,77 @@ if LIMO.Level == 1
                         title('Z1','Fontsize',14); colormap(z1, 'hot');
                     end
                     limo_display_image(LIMO,abs(Discriminant_coeff(:,:,1)),abs(Discriminant_coeff(:,:,1)),'Discriminant coefficients Z1',flag)
+
+                    % Create 3D surface plot
+                    if ~strcmpi(LIMO.Analysis,'Time-Frequency') % Only for 2D data
+                        figure; set(gcf,'Color','w');
+                        
+                        % Prepare data
+                        if strcmpi(LIMO.Analysis,'Time')
+                            if exist('timevect','var')
+                                xvect = timevect;
+                            else
+                                xvect = linspace(LIMO.data.start, LIMO.data.end, size(toplot,2));
+                            end
+                            xlabel_text = 'Time (ms)';
+                        else % Frequency
+                            if exist('freqvect','var')
+                                xvect = freqvect;
+                            else
+                                xvect = linspace(LIMO.data.freqlist(1), LIMO.data.freqlist(end), size(toplot,2));
+                            end
+                            xlabel_text = 'Frequency (Hz)';
+                        end
+                        
+                        % Create channel vector
+                        num_channels = size(toplot,1);
+                        channel_vector = 1:num_channels;
+                        
+                        % Create meshgrid for 3D plotting
+                        [X, Z] = meshgrid(xvect, channel_vector);
+                        
+                        % Plot 3D surface
+                        surf(X, toplot, Z, 'EdgeColor', 'none', 'FaceAlpha', 0.9);
+                        
+                        % Customize the plot
+                        xlabel(xlabel_text, 'FontSize', 14);
+                        ylabel('F values', 'FontSize', 14);
+                        zlabel('Channels', 'FontSize', 14);
+                        title([mytitle ' - 3D View'], 'FontSize', 16);
+                        
+                        % Set colormap
+                        colormap(limo_color_images(toplot));
+                        colorbar;
+                        
+                        % Adjust view angle
+                        view([-45 30]);
+                        
+                        % Set z-axis ticks and labels
+                        if num_channels <= 20
+                            set(gca, 'ZTick', channel_vector);
+                            if exist('label_electrodes','var') && ~isempty(label_electrodes)
+                                set(gca, 'ZTickLabel', flipud(label_electrodes(:)));
+                            end
+                        else
+                            % For many channels, show fewer labels
+                            tick_indices = round(linspace(1, num_channels, min(10, num_channels)));
+                            set(gca, 'ZTick', tick_indices);
+                            if exist('label_electrodes','var') && ~isempty(label_electrodes)
+                                set(gca, 'ZTickLabel', label_electrodes(tick_indices));
+                            end
+                        end
+                        
+                        % Add grid and lighting
+                        grid on;
+                        light('Position', [-1 -1 2], 'Style', 'local');
+                        lighting gouraud;
+                        material dull;
+                        
+                        % Store the 3D plot data
+                        assignin('base', 'Plot3D_X', X);
+                        assignin('base', 'Plot3D_Y', toplot);
+                        assignin('base', 'Plot3D_Z', Z);
+                    end
                     
                     %                     figure;set(gcf,'Color','w');
                     %                     for t=1:size(Discriminant_coeff,2)
@@ -1169,6 +1240,97 @@ elseif LIMO.Level == 2
         % ------------------
         if Type == 1 && ~strcmpi(LIMO.Analysis,'Time-Frequency') && ~strcmpi(LIMO.Analysis,'ITC')
             limo_display_image(LIMO,toplot,mask,mytitle,flag)
+
+            % Create 3D surface plot for Level 2
+            if Type == 1 && ~strcmpi(LIMO.Analysis,'Time-Frequency') && ~strcmpi(LIMO.Analysis,'ITC')
+                figure; set(gcf,'Color','w');
+                
+                % Prepare data
+                if strcmpi(LIMO.Analysis,'Time')
+                    if isfield(LIMO.data,'timevect')
+                        xvect = LIMO.data.timevect;
+                    else
+                        xvect = linspace(LIMO.data.start, LIMO.data.end, size(toplot,2));
+                    end
+                    xlabel_text = 'Time (ms)';
+                else % Frequency
+                    if isfield(LIMO.data,'freqlist')
+                        xvect = LIMO.data.freqlist;
+                    else
+                        xvect = linspace(LIMO.data.start, LIMO.data.end, size(toplot,2));
+                    end
+                    xlabel_text = 'Frequency (Hz)';
+                end
+                
+                % Create channel vector
+                num_channels = size(toplot,1);
+                channel_vector = 1:num_channels;
+                
+                % Create meshgrid for 3D plotting
+                [X, Z] = meshgrid(xvect, channel_vector);
+                
+                % Plot 3D surface
+                surf(X, toplot, Z, 'EdgeColor', 'none', 'FaceAlpha', 0.9);
+                
+                % Customize the plot
+                xlabel(xlabel_text, 'FontSize', 14);
+                ylabel('Statistical values', 'FontSize', 14);
+                zlabel('Channels', 'FontSize', 14);
+                title([mytitle ' - 3D View'], 'FontSize', 16);
+                
+                % Set colormap
+                colormap(limo_color_images(toplot));
+                colorbar;
+                
+                % Adjust view angle
+                view([-45 30]);
+                
+                % Set z-axis ticks and labels
+                if num_channels <= 20
+                    set(gca, 'ZTick', channel_vector);
+                    % Get channel labels
+                    if isempty(LIMO.design.electrode)
+                        for i = length(LIMO.data.chanlocs):-1:1
+                            label_electrodes{i} = LIMO.data.chanlocs(i).labels;
+                        end
+                        set(gca, 'ZTickLabel', flipud(label_electrodes(:)));
+                    else
+                        if length(LIMO.design.electrode) == 1
+                            set(gca, 'ZTickLabel', {num2str(LIMO.design.electrode)});
+                        end
+                    end
+                else
+                    % For many channels, show fewer labels
+                    tick_indices = round(linspace(1, num_channels, min(10, num_channels)));
+                    set(gca, 'ZTick', tick_indices);
+                    if isempty(LIMO.design.electrode)
+                        for i = tick_indices
+                            tick_labels{find(tick_indices==i)} = LIMO.data.chanlocs(i).labels;
+                        end
+                        set(gca, 'ZTickLabel', tick_labels);
+                    end
+                end
+                
+                % Add grid and lighting
+                grid on;
+                light('Position', [-1 -1 2], 'Style', 'local');
+                lighting gouraud;
+                material dull;
+                
+                % Apply mask if available - make non-significant values transparent
+                if exist('mask','var') && ~isempty(mask)
+                    masked_data = toplot;
+                    masked_data(~mask) = NaN;
+                    hold on;
+                    % Overlay significant values with higher opacity
+                    surf(X, masked_data, Z, 'EdgeColor', 'none', 'FaceAlpha', 1);
+                end
+                
+                % Store the 3D plot data
+                assignin('base', 'Plot3D_X', X);
+                assignin('base', 'Plot3D_Y', toplot);
+                assignin('base', 'Plot3D_Z', Z);
+            end
             
         elseif Type == 1 && strcmpi(LIMO.Analysis,'Time-Frequency') || ...
                 Type == 1 && strcmpi(LIMO.Analysis,'ITC')
@@ -2294,5 +2456,79 @@ else % freq
         end
     end
 end
+
+function create_interactive_3d_plot(xvect, toplot, channel_labels, mytitle, xlabel_text)
+    % Create interactive 3D plot with rotation capability
+    
+    fig = figure('Name', [mytitle ' - Interactive 3D'], 'Color', 'w');
+    
+    % Create channel vector
+    num_channels = size(toplot,1);
+    channel_vector = 1:num_channels;
+    
+    % Create meshgrid
+    [X, Z] = meshgrid(xvect, channel_vector);
+    
+    % Create surface plot
+    h = surf(X, toplot, Z, 'EdgeColor', 'none', 'FaceAlpha', 0.9);
+    
+    % Labels and title
+    xlabel(xlabel_text, 'FontSize', 14);
+    ylabel('Statistical values', 'FontSize', 14);
+    zlabel('Channels', 'FontSize', 14);
+    title(mytitle, 'FontSize', 16);
+    
+    % Colormap and colorbar
+    colormap(limo_color_images(toplot));
+    c = colorbar;
+    ylabel(c, 'F values', 'FontSize', 12);
+    
+    % Set initial view
+    view([-45 30]);
+    
+    % Channel labels on z-axis
+    if num_channels <= 20 && exist('channel_labels','var') && ~isempty(channel_labels)
+        set(gca, 'ZTick', channel_vector);
+        set(gca, 'ZTickLabel', channel_labels);
+    end
+    
+    % Lighting and material
+    light('Position', [-1 -1 2], 'Style', 'local');
+    lighting gouraud;
+    material dull;
+    grid on;
+    
+    % Add rotation toolbar
+    rotate3d on;
+    
+    % Add custom data cursor
+    dcm = datacursormode(fig);
+    set(dcm, 'UpdateFcn', @(obj,event_obj) myDataCursorText(obj, event_obj, xvect, channel_vector, toplot, channel_labels, xlabel_text));
+end
+
+function txt = myDataCursorText(~, event_obj, xvect, channel_vector, data, channel_labels, xlabel_text)
+    % Custom data cursor text
+    pos = get(event_obj, 'Position');
+    
+    % Find nearest indices
+    [~, x_idx] = min(abs(xvect - pos(1)));
+    [~, z_idx] = min(abs(channel_vector - pos(3)));
+    
+    % Create text
+    if contains(xlabel_text, 'Time')
+        x_label = sprintf('Time: %.1f ms', xvect(x_idx));
+    else
+        x_label = sprintf('Frequency: %.1f Hz', xvect(x_idx));
+    end
+    
+    if exist('channel_labels','var') && ~isempty(channel_labels) && z_idx <= length(channel_labels)
+        chan_label = sprintf('Channel: %s', channel_labels{z_idx});
+    else
+        chan_label = sprintf('Channel: %d', z_idx);
+    end
+    
+    txt = {x_label, chan_label, sprintf('Value: %.3f', data(z_idx, x_idx))};
+end
+
 end
 
