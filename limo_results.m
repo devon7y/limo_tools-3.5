@@ -38,6 +38,21 @@ end
 % --------------------------------------------------
 function limo_results_OpeningFcn(hObject, eventdata, handles, varargin)
 handles.output = hObject;
+
+% Apply EEGLAB color scheme
+try
+    if exist('icadefs', 'file')
+        icadefs;
+        if exist('GUIBACKCOLOR', 'var') && exist('GUITEXTCOLOR', 'var')
+            set(hObject, 'Color', GUIBACKCOLOR);
+            drawnow;
+            limo_apply_eeglab_colors_to_figure(hObject, GUIBACKCOLOR, GUITEXTCOLOR, GUIPOPBUTTONCOLOR);
+        end
+    end
+catch
+    % Continue silently if EEGLAB colors not available
+end
+
 guidata(hObject, handles);
 
 % define handles used for the save callback

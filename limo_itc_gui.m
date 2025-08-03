@@ -43,6 +43,24 @@ end
 function limo_itc_gui_OpeningFcn(hObject, eventdata, handles, varargin)
 handles.output = hObject;
 
+% Apply EEGLAB color scheme
+try
+    % Load EEGLAB colors if available
+    if exist('icadefs', 'file')
+        icadefs;
+        if exist('GUIBACKCOLOR', 'var') && exist('GUITEXTCOLOR', 'var')
+            % Set figure background to match EEGLAB
+            set(hObject, 'Color', GUIBACKCOLOR);
+            
+            % Apply colors to all UI elements
+            drawnow; % Ensure figure is rendered before applying colors
+            limo_apply_eeglab_colors_to_figure(hObject, GUIBACKCOLOR, GUITEXTCOLOR, GUIPOPBUTTONCOLOR);
+        end
+    end
+catch
+    % Silently continue if EEGLAB colors not available
+end
+
 % define handles used for the save callback
 handles.FileName = [];
 handles.CatName             = [];
