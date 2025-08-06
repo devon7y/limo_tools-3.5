@@ -251,6 +251,7 @@ switch type
                 if strcmp(LIMO.Analysis,'Time-Frequency') ||  strcmp(LIMO.Analysis,'ITC')
                     H0_one_sample = limo_tf_5d_reshape(H0_one_sample);
                 end
+                H0_one_sample = double(H0_one_sample);
                 save (['H0', filesep, boot_name],'H0_one_sample','-v7.3');
             end
         end
@@ -411,6 +412,7 @@ switch type
                 if strcmp(LIMO.Analysis,'Time-Frequency') ||  strcmp(LIMO.Analysis,'ITC')
                     H0_two_samples = limo_tf_5d_reshape(H0_two_samples);
                 end
+                H0_two_samples = double(H0_two_samples);
                 save (['H0', filesep, boot_name],'H0_two_samples','-v7.3');
             end
         end % closes if LIMO.design.bootstrap > 0
@@ -565,6 +567,7 @@ switch type
                 if strcmp(LIMO.Analysis,'Time-Frequency') ||  strcmp(LIMO.Analysis,'ITC')
                     H0_paired_samples = limo_tf_5d_reshape(H0_paired_samples);
                 end
+                H0_paired_samples = double(H0_paired_samples);
                 save (['H0', filesep, boot_name],'H0_paired_samples','-v7.3');
             end
         end % closes if LIMO.design.bootstrap > 0
@@ -1378,23 +1381,25 @@ switch type
             % save          
             for i=1:size(tmp_boot_H0_Rep_ANOVA,3)
                 name = sprintf('H0_%s',Rep_filenames{i});
-                H0_Rep_ANOVA = NaN(size(tmp_boot_H0_Rep_ANOVA,1), size(tmp_boot_H0_Rep_ANOVA, 2), size(tmp_boot_H0_Rep_ANOVA, 4), size(tmp_boot_H0_Rep_ANOVA, 5));
-                H0_Rep_ANOVA(:,:,:,:) = squeeze(tmp_boot_H0_Rep_ANOVA(:,:,i,:,:)); % save each factor effect as F/p/LIMO.design.bootstrap values
+                H0_Rep_ANOVA = squeeze(tmp_boot_H0_Rep_ANOVA(:,:,i,:,:)); % save each factor effect as F/p/LIMO.design.bootstrap values
                 if strcmp(LIMO.Analysis,'Time-Frequency') ||  strcmp(LIMO.Analysis,'ITC')
                     H0_Rep_ANOVA = limo_tf_5d_reshape(H0_Rep_ANOVA);
                 end
-                save_H0_Rep_ANOVA_batched(H0_Rep_ANOVA, ['H0', filesep, name], 100);
+                % CRITICAL: Convert to double and save with correct variable name
+                H0_Rep_ANOVA = double(H0_Rep_ANOVA);
+                save (sprintf('H0%sH0_%s', filesep, Rep_filenames{i}), 'H0_Rep_ANOVA', '-v7.3');
             end
             
             if type == 3 || type ==4
                 for i=1:size(tmp_boot_H0_Rep_ANOVA_Interaction_with_gp,3)
                     name = sprintf('H0_%s',IRep_filenames{i});
-                    H0_Rep_ANOVA_Interaction_with_gp = NaN(size(tmp_boot_H0_Rep_ANOVA_Interaction_with_gp,1), size(tmp_boot_H0_Rep_ANOVA_Interaction_with_gp, 2), size(tmp_boot_H0_Rep_ANOVA_Interaction_with_gp, 4), size(tmp_boot_H0_Rep_ANOVA_Interaction_with_gp, 5));
-                    H0_Rep_ANOVA_Interaction_with_gp(:,:,:,:) = squeeze(tmp_boot_H0_Rep_ANOVA_Interaction_with_gp(:,:,i,:,:)); % save each interaction effect as F/p values
+                    H0_Rep_ANOVA_Interaction_with_gp = squeeze(tmp_boot_H0_Rep_ANOVA_Interaction_with_gp(:,:,i,:,:)); % save each interaction effect as F/p values
                     if strcmp(LIMO.Analysis,'Time-Frequency') ||  strcmp(LIMO.Analysis,'ITC')
                         H0_Rep_ANOVA_Interaction_with_gp = limo_tf_5d_reshape(H0_Rep_ANOVA_Interaction_with_gp);
                     end
-                    save_H0_Interaction_batched(H0_Rep_ANOVA_Interaction_with_gp, ['H0', filesep, name], 100);
+                    % CRITICAL: Convert to double and save with correct variable name
+                    H0_Rep_ANOVA_Interaction_with_gp = double(H0_Rep_ANOVA_Interaction_with_gp);
+                    save (sprintf('H0%sH0_%s', filesep, IRep_filenames{i}), 'H0_Rep_ANOVA_Interaction_with_gp', '-v7.3');
                 end
                 
                 if strcmp(LIMO.Analysis,'Time-Frequency') ||  strcmp(LIMO.Analysis,'ITC')
@@ -1425,74 +1430,506 @@ switch type
 end
 warning on
 
-% ADD THESE FUNCTIONS AFTER LINE 85 (after the main function documentation)
-% Before the "warning off" line
+    % ========== CHUNKED BOOTSTRAP PROCESSING ==========
+    
+    % Chunking parameters
+    chunk_size = 100;  % Adjust based on your memory constraints
+    n_chunks = ceil(LIMO.design.bootstrap / chunk_size);
+    chunk_dir = fullfile(LIMO.dir, 'H0', 'chunks');
+    
+    fprintf('\n=== CHUNKED BOOTSTRAP PROCESSING ===\n');
+    fprintf('Total bootstraps: %d\n', LIMO.design.bootstrap);
+    fprintf('Chunk size: %d\n', chunk_size);
+    fprintf('Number of chunks: %d\n', n_chunks);
+    
+    % Create chunk directory
+    if ~exist(chunk_dir, 'dir')
+        mkdir(chunk_dir);
+    end
+    
+    % Process each chunk
+    for chunk = 1:n_chunks
+        chunk_start = (chunk - 1) * chunk_size + 1;
+        chunk_end = min(chunk * chunk_size, LIMO.design.bootstrap);
+        chunk_bootstraps = chunk_end - chunk_start + 1;
+        
+        fprintf('\n--- Processing chunk %d/%d (bootstraps %d-%d) ---\n', ...
+            chunk, n_chunks, chunk_start, chunk_end);
+        
+        % Pre-allocate for this chunk
+        if type == 1
+            chunk_H0_Rep_ANOVA = NaN(size(centered_data,1), size(centered_data,2), 1, 2, chunk_bootstraps);
+        elseif type == 2
+            chunk_H0_Rep_ANOVA = NaN(size(centered_data,1), size(centered_data,2), length(C), 2, chunk_bootstraps);
+        elseif type == 3
+            chunk_H0_Rep_ANOVA = NaN(size(centered_data,1), size(centered_data,2), 1, 2, chunk_bootstraps);
+            chunk_H0_Gp_effect = NaN(size(centered_data,1), size(centered_data,2), 2, chunk_bootstraps);
+            chunk_H0_Interaction = NaN(size(centered_data,1), size(centered_data,2), 1, 2, chunk_bootstraps);
+        else % type == 4
+            chunk_H0_Rep_ANOVA = NaN(size(centered_data,1), size(centered_data,2), length(C), 2, chunk_bootstraps);
+            chunk_H0_Gp_effect = NaN(size(centered_data,1), size(centered_data,2), 2, chunk_bootstraps);
+            chunk_H0_Interaction = NaN(size(centered_data,1), size(centered_data,2), length(C), 2, chunk_bootstraps);
+        end
+        
+        % Process bootstraps in parallel for this chunk
+        array = find(~isnan(centered_data(:,1,1,1)));
+        
+        parfor b = 1:chunk_bootstraps
+            actual_boot = chunk_start + b - 1;
+            
+            % Initialize for parfor
+            if type == 1
+                tmp_H0_Rep_ANOVA = NaN(size(centered_data,1), size(centered_data,2), 1, 2);
+                tmp_H0_Gp_effect = [];
+                tmp_H0_Interaction = [];
+            elseif type == 2
+                tmp_H0_Rep_ANOVA = NaN(size(centered_data,1), size(centered_data,2), length(C), 2);
+                tmp_H0_Gp_effect = [];
+                tmp_H0_Interaction = [];
+            elseif type == 3
+                tmp_H0_Rep_ANOVA = NaN(size(centered_data,1), size(centered_data,2), 1, 2);
+                tmp_H0_Gp_effect = NaN(size(centered_data,1), size(centered_data,2), 2);
+                tmp_H0_Interaction = NaN(size(centered_data,1), size(centered_data,2), 1, 2);
+            else
+                tmp_H0_Rep_ANOVA = NaN(size(centered_data,1), size(centered_data,2), length(C), 2);
+                tmp_H0_Gp_effect = NaN(size(centered_data,1), size(centered_data,2), 2);
+                tmp_H0_Interaction = NaN(size(centered_data,1), size(centered_data,2), length(C), 2);
+            end
+            
+            if mod(b, 10) == 0 || b == 1 || b == chunk_bootstraps
+                fprintf('  Bootstrap %d/%d (global: %d)\n', b, chunk_bootstraps, actual_boot);
+            end
+            
+            for e = 1:length(array)
+                channel = array(e);
+                
+                % Get bootstrapped data
+                tmp = squeeze(centered_data(channel,:,boot_table{channel}(:,actual_boot),:));
+                
+                if size(centered_data,2) == 1
+                    Y = ones(1,size(tmp,1),size(tmp,2));
+                    Y(1,:,:) = tmp;
+                    gp = gp_vector(find(~isnan(Y(1,:,1))),:);
+                    Y = Y(:,find(~isnan(Y(1,:,1))),:);
+                else
+                    Y = tmp(:,find(~isnan(tmp(1,:,1))),:);
+                    gp = gp_vector(find(~isnan(tmp(1,:,1))));
+                end
+                
+                if type == 3 || type == 4
+                    XB = X(find(~isnan(tmp(1,:,1))),:);
+                else
+                    XB = [];
+                end
+                
+                % Run analysis based on type
+                if type == 1
+                    if contains(LIMO.design.method,'Trimmed Mean','IgnoreCase',true)
+                        result = limo_robust_rep_anova(Y,gp,factor_levels,C);
+                    else
+                        result = limo_rep_anova(Y,gp,factor_levels,C);
+                    end
+                    tmp_H0_Rep_ANOVA(channel,:,1,1) = result.F;
+                    tmp_H0_Rep_ANOVA(channel,:,1,2) = result.p;
+                    
+                elseif type == 2
+                    if contains(LIMO.design.method,'Trimmed Mean','IgnoreCase',true)
+                        result = limo_robust_rep_anova(Y,gp,factor_levels,C);
+                    else
+                        result = limo_rep_anova(Y,gp,factor_levels,C);
+                    end
+                    tmp_H0_Rep_ANOVA(channel,:,:,1) = result.F';
+                    tmp_H0_Rep_ANOVA(channel,:,:,2) = result.p';
+                    
+                elseif type == 3
+                    if contains(LIMO.design.method,'Trimmed Mean','IgnoreCase',true)
+                        result = limo_robust_rep_anova(Y,gp,factor_levels,C,XB);
+                    else
+                        result = limo_rep_anova(Y,gp,factor_levels,C,XB);
+                    end
+                    tmp_H0_Rep_ANOVA(channel,:,1,1) = result.repeated_measure.F;
+                    tmp_H0_Rep_ANOVA(channel,:,1,2) = result.repeated_measure.p;
+                    tmp_H0_Gp_effect(channel,:,1) = result.gp.F;
+                    tmp_H0_Gp_effect(channel,:,2) = result.gp.p;
+                    tmp_H0_Interaction(channel,:,1,1) = result.interaction.F;
+                    tmp_H0_Interaction(channel,:,1,2) = result.interaction.p;
+                    
+                elseif type == 4
+                    if contains(LIMO.design.method,'Trimmed Mean','IgnoreCase',true)
+                        result = limo_robust_rep_anova(Y,gp,factor_levels,C,XB);
+                    else
+                        result = limo_rep_anova(Y,gp,factor_levels,C,XB);
+                    end
+                    tmp_H0_Rep_ANOVA(channel,:,:,1) = result.repeated_measure.F';
+                    tmp_H0_Rep_ANOVA(channel,:,:,2) = result.repeated_measure.p';
+                    tmp_H0_Gp_effect(channel,:,1) = result.gp.F;
+                    tmp_H0_Gp_effect(channel,:,2) = result.gp.p;
+                    tmp_H0_Interaction(channel,:,:,1) = result.interaction.F';
+                    tmp_H0_Interaction(channel,:,:,2) = result.interaction.p';
+                end
+            end
+            
+            % Store in chunk arrays
+            chunk_H0_Rep_ANOVA(:,:,:,:,b) = tmp_H0_Rep_ANOVA;
+            if type == 3 || type == 4
+                chunk_H0_Gp_effect(:,:,:,b) = tmp_H0_Gp_effect;
+                chunk_H0_Interaction(:,:,:,:,b) = tmp_H0_Interaction;
+            end
+        end
+        
+        fprintf('  Saving chunk %d/%d...\n', chunk, n_chunks);
 
-% =========================================================================
-% BATCHED SAVING FUNCTIONS FOR LARGE H0 FILES
-% =========================================================================
+        % Save main effects with correct dimensions
+        for i = 1:size(chunk_H0_Rep_ANOVA,3)
+            % CRITICAL: Handle the dimensions correctly based on analysis type
+            
+            if type == 1 || type == 2
+                % Extract data for this effect
+                if size(chunk_H0_Rep_ANOVA,3) == 1
+                    % Single effect: chunk_H0_Rep_ANOVA is [channels, time, 1, 2, bootstraps]
+                    % We need [channels, time, 2, bootstraps]
+                    H0_data = squeeze(chunk_H0_Rep_ANOVA(:,:,1,:,:));
+                else
+                    % Multiple effects: extract specific effect
+                    % chunk_H0_Rep_ANOVA is [channels, time, effects, 2, bootstraps]
+                    % We need [channels, time, 2, bootstraps]
+                    H0_data = squeeze(chunk_H0_Rep_ANOVA(:,:,i,:,:));
+                end
+                
+                % CRITICAL DIMENSION CHECK
+                dims_before = size(H0_data);
+                if length(dims_before) == 3
+                    % PROBLEM: Lost the statistics dimension!
+                    % This happens if squeeze removed a singleton dimension incorrectly
+                    warning('Statistics dimension lost! Reshaping...');
+                    
+                    % Determine what we have
+                    if dims_before(3) == chunk_bootstraps * 2
+                        % Data is [channels, time, F1,p1,F2,p2,...]
+                        fprintf('  Detected interleaved F/p values\n');
+                        temp = NaN(dims_before(1), dims_before(2), 2, chunk_bootstraps);
+                        temp(:,:,1,:) = H0_data(:,:,1:2:end);
+                        temp(:,:,2,:) = H0_data(:,:,2:2:end);
+                        H0_data = temp;
+                    else
+                        % Data is [channels, time, bootstraps] - missing stats
+                        fprintf('  Adding statistics dimension\n');
+                        temp = NaN(dims_before(1), dims_before(2), 2, dims_before(3));
+                        % The bootstrap data should have both F and p
+                        % If it doesn't, there's a problem in the bootstrap loop
+                        error('Bootstrap data missing F/p separation - check bootstrap loop');
+                    end
+                elseif length(dims_before) == 4 && dims_before(3) ~= 2
+                    % Wrong statistics dimension size
+                    warning('Statistics dimension is %d, should be 2', dims_before(3));
+                end
+                
+                % Final check
+                dims_after = size(H0_data);
+                fprintf('  Effect %d dimensions: %s\n', i, mat2str(dims_after));
+                
+                if length(dims_after) ~= 4 || dims_after(3) ~= 2
+                    error('Incorrect dimensions for H0 data: %s (expected [channels, time, 2, %d])', ...
+                        mat2str(dims_after), chunk_bootstraps);
+                end
+                
+            elseif type == 3 || type == 4
+                % Group and interaction effects
+                if i <= size(chunk_H0_Rep_ANOVA,3)
+                    % Main repeated measures effects
+                    if size(chunk_H0_Rep_ANOVA,3) == 1
+                        H0_data = squeeze(chunk_H0_Rep_ANOVA(:,:,1,:,:));
+                    else
+                        H0_data = squeeze(chunk_H0_Rep_ANOVA(:,:,i,:,:));
+                    end
+                    
+                    % Ensure correct dimensions
+                    dims = size(H0_data);
+                    if length(dims) == 3 && dims(3) ~= chunk_bootstraps * 2
+                        % Missing stats dimension
+                        error('Missing statistics dimension in Rep ANOVA data');
+                    elseif length(dims) == 4 && dims(3) ~= 2
+                        error('Statistics dimension should be 2, got %d', dims(3));
+                    end
+                end
+            end
+            
+            % Apply Time-Frequency reshape if needed
+            if strcmp(LIMO.Analysis,'Time-Frequency') || strcmp(LIMO.Analysis,'ITC')
+                H0_data = limo_tf_5d_reshape(H0_data);
+            end
+            
+            % Save with correct variable name
+            base_name = sprintf('H0_%s', Rep_filenames{i}(1:end-4));
+            limo_save_boot_chunks(double(H0_data), chunk_dir, base_name, ...
+                chunk_start, chunk_size, 'H0_Rep_ANOVA');
+        end
+        
+        % Save group effect if applicable (type 3 or 4)
+        if type == 3 || type == 4
+            H0_data = chunk_H0_Gp_effect;
+            
+            % Check dimensions
+            dims = size(H0_data);
+            fprintf('  Group effect dimensions: %s\n', mat2str(dims));
+            
+            if length(dims) == 3 && dims(3) == chunk_bootstraps
+                % Has [channels, time, bootstraps] but missing [F, p]
+                % The group effect should have both F and p from the analysis
+                warning('Group effect missing statistics dimension');
+                % Check if dimension 3 has interleaved F,p
+                if dims(3) == chunk_bootstraps * 2
+                    temp = NaN(dims(1), dims(2), 2, chunk_bootstraps);
+                    temp(:,:,1,:) = H0_data(:,:,1:2:end);
+                    temp(:,:,2,:) = H0_data(:,:,2:2:end);
+                    H0_data = temp;
+                else
+                    error('Cannot determine F/p structure for group effect');
+                end
+            elseif length(dims) == 4 && dims(3) ~= 2
+                error('Group effect statistics dimension should be 2, got %d', dims(3));
+            end
+            
+            if strcmp(LIMO.Analysis,'Time-Frequency') || strcmp(LIMO.Analysis,'ITC')
+                H0_data = limo_tf_5d_reshape(H0_data);
+            end
+            
+            limo_save_boot_chunks(double(H0_data), chunk_dir, 'H0_Rep_ANOVA_Gp_effect', ...
+                chunk_start, chunk_size, 'H0_Rep_ANOVA_Gp_effect');
+            
+            % Save interactions
+            for i = 1:size(chunk_H0_Interaction,3)
+                if size(chunk_H0_Interaction,3) == 1
+                    H0_data = squeeze(chunk_H0_Interaction(:,:,1,:,:));
+                else
+                    H0_data = squeeze(chunk_H0_Interaction(:,:,i,:,:));
+                end
+                
+                % Check and fix dimensions
+                dims = size(H0_data);
+                if length(dims) == 3
+                    warning('Interaction missing statistics dimension');
+                    if dims(3) == chunk_bootstraps * 2
+                        temp = NaN(dims(1), dims(2), 2, chunk_bootstraps);
+                        temp(:,:,1,:) = H0_data(:,:,1:2:end);
+                        temp(:,:,2,:) = H0_data(:,:,2:2:end);
+                        H0_data = temp;
+                    else
+                        error('Cannot determine F/p structure for interaction');
+                    end
+                elseif length(dims) == 4 && dims(3) ~= 2
+                    error('Interaction statistics dimension should be 2, got %d', dims(3));
+                end
+                
+                if strcmp(LIMO.Analysis,'Time-Frequency') || strcmp(LIMO.Analysis,'ITC')
+                    H0_data = limo_tf_5d_reshape(H0_data);
+                end
+                
+                base_name = sprintf('H0_%s', IRep_filenames{i}(1:end-4));
+                limo_save_boot_chunks(double(H0_data), chunk_dir, base_name, ...
+                    chunk_start, chunk_size, 'H0_Rep_ANOVA_Interaction_with_gp');
+            end
+        end
+        
+        % Clear chunk data
+        clear chunk_H0_Rep_ANOVA chunk_H0_Gp_effect chunk_H0_Interaction
+    end
+    
+    % ========== MERGE CHUNKS ==========
+    fprintf('\n=== MERGING BOOTSTRAP CHUNKS ===\n');
+    
+    % Merge main effects
+    for i = 1:nb_effects
+        base_name = sprintf('H0_%s', Rep_filenames{i}(1:end-4));
+        output_file = fullfile(LIMO.dir, 'H0', sprintf('H0_%s.mat', Rep_filenames{i}(1:end-4)));
+        
+        fprintf('Merging %s...\n', Rep_filenames{i});
+        [success, ~] = limo_merge_boot_chunks(chunk_dir, base_name, output_file, ...
+            'var_name', 'H0_Rep_ANOVA', 'delete_chunks', false, 'verify', true);
+        
+        if ~success
+            warning('Failed to merge %s', Rep_filenames{i});
+        end
+    end
+    
+    % Merge group and interaction effects if applicable
+    if type == 3 || type == 4
+        % Group effect
+        fprintf('Merging group effect...\n');
+        limo_merge_boot_chunks(chunk_dir, 'H0_Rep_ANOVA_Gp_effect', ...
+            fullfile(LIMO.dir, 'H0', 'H0_Rep_ANOVA_Gp_effect.mat'), ...
+            'var_name', 'H0_Rep_ANOVA_Gp_effect', 'delete_chunks', false);
+        
+        % Interactions
+        for i = 1:length(IRep_filenames)
+            base_name = sprintf('H0_%s', IRep_filenames{i}(1:end-4));
+            output_file = fullfile(LIMO.dir, 'H0', sprintf('H0_%s.mat', IRep_filenames{i}(1:end-4)));
+            
+            fprintf('Merging %s...\n', IRep_filenames{i});
+            limo_merge_boot_chunks(chunk_dir, base_name, output_file, ...
+                'var_name', 'H0_Rep_ANOVA_Interaction_with_gp', 'delete_chunks', false);
+        end
+    end
+    
+    % Optional cleanup
+    if usejava('desktop')
+        answer = questdlg('Delete chunk files?', 'Cleanup', 'Yes', 'No', 'No');
+        if strcmp(answer, 'Yes')
+            rmdir(chunk_dir, 's');
+            fprintf('Chunk directory deleted\n');
+        end
+    end
+    
+    fprintf('\n=== BOOTSTRAP PROCESSING COMPLETE ===\n');
+    
+end % End of bootstrap section
 
-function save_H0_Rep_ANOVA_batched(H0_data, filepath, batch_size)
+function save_H0_Rep_ANOVA_batched
     % Helper function to save large H0 arrays in batches to avoid corruption
+    % IMPROVED VERSION - handles larger files more reliably
+    
     if nargin < 3
-        batch_size = 100;  % Default to 100 bootstraps per batch
+        batch_size = 25;  % Reduced default batch size for better reliability
     end
     
     dims = size(H0_data);
     n_bootstraps = dims(end);
     
     % If small enough, use regular save
-    if n_bootstraps <= 200
+    if n_bootstraps <= 100
         H0_Rep_ANOVA = H0_data;
         save(filepath, 'H0_Rep_ANOVA', '-v7.3');
         return;
     end
     
-    % For large arrays, save in batches
-    fprintf('    Using batched save: %d bootstraps in batches of %d\n', n_bootstraps, batch_size);
+    % For large arrays, use more robust approach
+    fprintf('    Using improved batched save: %d bootstraps in batches of %d\n', n_bootstraps, batch_size);
     
-    % Create a matfile with proper dimensions
+    % Delete existing file to ensure clean write
     if exist(filepath, 'file')
         delete(filepath);
     end
     
-    m = matfile(filepath, 'Writable', true);
-    m.H0_Rep_ANOVA = NaN(dims);
+    % Wait a moment for file system to catch up (important for external drives)
+    pause(0.5);
     
-    % Write data in batches
+    % Create file with explicit HDF5 settings
+    m = matfile(filepath, 'Writable', true);
+    
+    % Pre-allocate with explicit chunking strategy
+    % Smaller chunks = more reliable writes
+    if length(dims) == 4
+        m.H0_Rep_ANOVA = NaN(dims(1), dims(2), dims(3), dims(4), 'single');
+    else
+        m.H0_Rep_ANOVA = NaN(dims(1), dims(2), dims(3), dims(4), dims(5), 'single');
+    end
+    
+    % Convert to single precision if not already (saves 50% space/memory)
+    if ~isa(H0_data, 'single')
+        fprintf('    Converting to single precision to save memory...\n');
+        H0_data = single(H0_data);
+    end
+    
+    % Write data in batches with verification
     n_batches = ceil(n_bootstraps / batch_size);
+    successful_writes = 0;
+    
     for batch = 1:n_batches
         start_idx = (batch-1) * batch_size + 1;
         end_idx = min(batch * batch_size, n_bootstraps);
         
         fprintf('    Writing batch %d/%d (bootstraps %d-%d)...', batch, n_batches, start_idx, end_idx);
         
-        try
-            if length(dims) == 4
-                m.H0_Rep_ANOVA(:,:,:,start_idx:end_idx) = H0_data(:,:,:,start_idx:end_idx);
-            elseif length(dims) == 5
-                m.H0_Rep_ANOVA(:,:,:,:,start_idx:end_idx) = H0_data(:,:,:,:,start_idx:end_idx);
+        % Multiple attempts for each batch
+        max_attempts = 3;
+        for attempt = 1:max_attempts
+            try
+                % Write the batch
+                if length(dims) == 4
+                    m.H0_Rep_ANOVA(:,:,:,start_idx:end_idx) = H0_data(:,:,:,start_idx:end_idx);
+                elseif length(dims) == 5
+                    m.H0_Rep_ANOVA(:,:,:,:,start_idx:end_idx) = H0_data(:,:,:,:,start_idx:end_idx);
+                end
+                
+                % Force write to disk
+                if mod(batch, 10) == 0 || batch == n_batches
+                    % Every 10 batches, force a sync
+                    clear m;
+                    pause(0.5);  % Give file system time to write
+                    m = matfile(filepath, 'Writable', true);
+                end
+                
+                successful_writes = successful_writes + 1;
+                fprintf(' OK\n');
+                break;  % Success, exit retry loop
+                
+            catch ME
+                if attempt < max_attempts
+                    fprintf(' FAILED (attempt %d/%d), retrying...\n', attempt, max_attempts);
+                    pause(1);  % Wait before retry
+                else
+                    fprintf(' FAILED: %s\n', ME.message);
+                    error('Batch save failed at batch %d after %d attempts', batch, max_attempts);
+                end
             end
-            fprintf(' OK\n');
-        catch ME
-            fprintf(' FAILED: %s\n', ME.message);
-            error('Batch save failed at batch %d', batch);
+        end
+        
+        % Progress checkpoint every 250 bootstraps
+        if mod(end_idx, 250) == 0
+            fprintf('    Checkpoint: %d/%d bootstraps written successfully\n', end_idx, n_bootstraps);
+            
+            % Verify file integrity so far
+            try
+                test_m = matfile(filepath);
+                test_size = size(test_m, 'H0_Rep_ANOVA');
+                fprintf('    File verification: dimensions = %s\n', mat2str(test_size));
+            catch
+                warning('Could not verify file integrity at checkpoint %d', end_idx);
+            end
         end
     end
     
-    fprintf('    Batched save completed successfully\n');
+    % Final verification
+    pause(1);  % Ensure all writes are complete
+    fprintf('    Batched save completed: %d/%d batches successful\n', successful_writes, n_batches);
+    
+    % Verify final file
+    try
+        test_m = matfile(filepath);
+        final_size = size(test_m, 'H0_Rep_ANOVA');
+        fprintf('    Final verification: dimensions = %s\n', mat2str(final_size));
+        
+        % Test read of last bootstrap
+        if length(dims) == 4
+            test_data = test_m.H0_Rep_ANOVA(:,:,:,n_bootstraps);
+        else
+            test_data = test_m.H0_Rep_ANOVA(:,:,:,:,n_bootstraps);
+        end
+        
+        if all(isnan(test_data(:)))
+            warning('Last bootstrap appears to be all NaN - possible incomplete write');
+        else
+            fprintf('    ✓ File verification PASSED\n');
+        end
+        
+    catch ME
+        warning('Final verification failed.');
+    end
 end
 
 function save_H0_Interaction_batched(H0_data, filepath, batch_size)
-    % Helper function for interaction effects
+    % Similar improvements for interaction effects
     if nargin < 3
-        batch_size = 100;
+        batch_size = 50;
     end
     
     dims = size(H0_data);
     n_bootstraps = dims(end);
     
-    if n_bootstraps <= 200
+    % CRITICAL: Convert to double
+    H0_data = double(H0_data);
+    
+    if n_bootstraps <= 100
         H0_Rep_ANOVA_Interaction_with_gp = H0_data;
         save(filepath, 'H0_Rep_ANOVA_Interaction_with_gp', '-v7.3');
         return;
@@ -1503,37 +1940,62 @@ function save_H0_Interaction_batched(H0_data, filepath, batch_size)
     if exist(filepath, 'file')
         delete(filepath);
     end
+    pause(0.5);
     
     m = matfile(filepath, 'Writable', true);
-    m.H0_Rep_ANOVA_Interaction_with_gp = NaN(dims);
+    
+    % Use DOUBLE precision
+    if length(dims) == 4
+        m.H0_Rep_ANOVA_Interaction_with_gp = NaN(dims(1), dims(2), dims(3), dims(4), 'double');
+    else
+        m.H0_Rep_ANOVA_Interaction_with_gp = NaN(dims(1), dims(2), dims(3), dims(4), dims(5), 'double');
+    end
     
     n_batches = ceil(n_bootstraps / batch_size);
     for batch = 1:n_batches
         start_idx = (batch-1) * batch_size + 1;
         end_idx = min(batch * batch_size, n_bootstraps);
         
-        try
-            if length(dims) == 4
-                m.H0_Rep_ANOVA_Interaction_with_gp(:,:,:,start_idx:end_idx) = H0_data(:,:,:,start_idx:end_idx);
-            elseif length(dims) == 5
-                m.H0_Rep_ANOVA_Interaction_with_gp(:,:,:,:,start_idx:end_idx) = H0_data(:,:,:,:,start_idx:end_idx);
+        max_attempts = 3;
+        for attempt = 1:max_attempts
+            try
+                if length(dims) == 4
+                    m.H0_Rep_ANOVA_Interaction_with_gp(:,:,:,start_idx:end_idx) = H0_data(:,:,:,start_idx:end_idx);
+                elseif length(dims) == 5
+                    m.H0_Rep_ANOVA_Interaction_with_gp(:,:,:,:,start_idx:end_idx) = H0_data(:,:,:,:,start_idx:end_idx);
+                end
+                
+                if mod(batch, 10) == 0 || batch == n_batches
+                    clear m;
+                    pause(0.5);
+                    m = matfile(filepath, 'Writable', true);
+                end
+                
+                break;
+            catch ME
+                if attempt < max_attempts
+                    pause(1);
+                else
+                    error('Batch save failed at batch %d: %s', batch, ME.message);
+                end
             end
-        catch ME
-            error('Batch save failed at batch %d: %s', batch, ME.message);
         end
     end
 end
 
 function save_H0_Gp_effect_batched(H0_data, filepath, batch_size)
-    % Helper function for group effects
+    % Similar improvements for group effects
     if nargin < 3
-        batch_size = 100;
+        batch_size = 50;
     end
     
     dims = size(H0_data);
     n_bootstraps = dims(end);
     
-    if n_bootstraps <= 200
+    % CRITICAL: Convert to double
+    H0_data = double(H0_data);
+    
+    if n_bootstraps <= 100
         H0_Rep_ANOVA_Gp_effect = H0_data;
         save(filepath, 'H0_Rep_ANOVA_Gp_effect', '-v7.3');
         return;
@@ -1544,25 +2006,39 @@ function save_H0_Gp_effect_batched(H0_data, filepath, batch_size)
     if exist(filepath, 'file')
         delete(filepath);
     end
+    pause(0.5);
     
     m = matfile(filepath, 'Writable', true);
-    m.H0_Rep_ANOVA_Gp_effect = NaN(dims);
+    
+    % Use DOUBLE precision
+    m.H0_Rep_ANOVA_Gp_effect = NaN(dims(1), dims(2), dims(3), dims(4), 'double');
     
     n_batches = ceil(n_bootstraps / batch_size);
     for batch = 1:n_batches
         start_idx = (batch-1) * batch_size + 1;
         end_idx = min(batch * batch_size, n_bootstraps);
         
-        try
-            m.H0_Rep_ANOVA_Gp_effect(:,:,:,start_idx:end_idx) = H0_data(:,:,:,start_idx:end_idx);
-        catch ME
-            error('Batch save failed at batch %d: %s', batch, ME.message);
+        max_attempts = 3;
+        for attempt = 1:max_attempts
+            try
+                m.H0_Rep_ANOVA_Gp_effect(:,:,:,start_idx:end_idx) = H0_data(:,:,:,start_idx:end_idx);
+                
+                if mod(batch, 10) == 0 || batch == n_batches
+                    clear m;
+                    pause(0.5);
+                    m = matfile(filepath, 'Writable', true);
+                end
+                
+                break;
+            catch ME
+                if attempt < max_attempts
+                    pause(1);
+                else
+                    error('Batch save failed at batch %d: %s', batch, ME.message);
+                end
+            end
         end
     end
 end
 
 % =========================================================================
-
-end
-
-
