@@ -249,16 +249,20 @@ if strcmpi(stattest,'one sample t-test') || strcmpi(stattest,'regression')
                 % get variable from study, DOES NOT HANDLE multiple sessions
                 uiList = { { 'style' 'text' 'string' 'Select subject specific variable(s) from the EEGLAB study' } ...
                            { 'style' 'listbox' 'string' indvar 'max' 2} ...
-                           { 'style' 'text' 'string' 'These variables will be saved in the current folder as "regression_vars.txt"' } ...' ...
-                           { 'style' 'text' 'string' 'Alternatively, press browse to load a text file with values to regress on'} };
-                res = inputgui('uilist', uiList, 'geometry', { [1] [1] [1] [1]}, 'geomvert', [1 3 1 1], 'cancel', 'Browse');
-                if isempty(res)
-                    [FileName,PathName,FilterIndex]=uigetfile('*.txt;*.mat','select regressor file');
-                else
+                           { 'style' 'text' 'string' 'These variables will be saved in the current folder as "regression_vars.txt"' } ...
+                           { 'style' 'pushbutton' 'string' 'Browse for regressor file instead' 'tag' 'browse_button'} };
+                res = inputgui('uilist', uiList, 'geometry', { [1] [1] [1] [1]}, 'geomvert', [1 3 1 1]);
+                
+                % Check if Browse button was pressed (res will contain empty for listbox if Browse was pressed)
+                if ~isempty(res) && ~isempty(res{1}) && ~isempty(res{2})
+                    % User selected variables from study
                     FilterIndex = 1;
                     PathName = pwd;
                     FileName = 'regression_vars.txt';
                     std_saveindvar(STUDY, indvar(res{1}), fullfile(PathName, FileName));
+                else
+                    % User pressed Browse button or cancelled variable selection
+                    [FileName,PathName,FilterIndex]=uigetfile('*.txt;*.mat','select regressor file');
                 end
             else
                 [FileName,PathName,FilterIndex]=uigetfile('*.txt;*.mat','select regressor file');

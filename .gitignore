@@ -219,3 +219,8 @@ pip-log.txt
 #Mr Developer
 .mr.developer.cfg
 *.asv
+.python-version
+.python-version
+.claude
+.gemini-clipboard
+limo_tfce_handling.m.backup
