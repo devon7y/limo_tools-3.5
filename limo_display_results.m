@@ -444,7 +444,12 @@ if LIMO.Level == 1
                         surf(X, toplot, Z, 'EdgeColor', 'none', 'FaceAlpha', 0.9);
                         
                         % Customize the plot
-                        set(gca, 'YLimMode', 'manual');
+                        % Set Y-axis limits to encompass full range of statistical values
+                        y_min = min(toplot(:));
+                        y_max = max(toplot(:));
+                        y_range = y_max - y_min;
+                        y_margin = y_range * 0.05; % Add 5% margin
+                        ylim([y_min - y_margin, y_max + y_margin]);
                         xlabel(xlabel_text, 'FontSize', 14);
                         ylabel('F values', 'FontSize', 14);
                         zlabel('Channels', 'FontSize', 14);
@@ -1272,7 +1277,12 @@ elseif LIMO.Level == 2
                 surf(C, T, toplot, 'EdgeColor', 'none', 'FaceAlpha', 0.9);
                 
                 % Customize the plot
-                set(gca, 'ZLimMode', 'manual');
+                % Set Z-axis limits to encompass full range of statistical values
+                z_min = min(toplot(:));
+                z_max = max(toplot(:));
+                z_range = z_max - z_min;
+                z_margin = z_range * 0.05; % Add 5% margin
+                zlim([z_min - z_margin, z_max + z_margin]);
                 set(gca, 'Color', [1 1 1]); % White background for the axes
                 xlabel('Channels', 'FontSize', 14, 'Color', 'k');
                 ylabel(time_label, 'FontSize', 14, 'Color', 'k');
