@@ -1,17 +1,18 @@
-function limo_display_image(LIMO,toplot,mask,mytitle,dynamic)
+function limo_display_image(LIMO,toplot,mask,mytitle,dynamic,parent_tab)
 
 % This function displays images with a intensity plotted as function of
 % time or frequency (x) and electrodes (y) - for ERSP it precomputes what
 % needs to be plotted and call LIMO_display_image_tf
 %
-% FORMAT: limo_display_image(LIMO,toplot,mask,mytitle,dynamic)
+% FORMAT: limo_display_image(LIMO,toplot,mask,mytitle,dynamic,parent_tab)
 %
 % INPUTS:
-%   LIMO.mat  = Name of the file to image
-%   toplot    = 2D matrix to plot (typically t/F values)
-%   mask      = areas for which to show data (to show all mask = ones(size(topolot))
-%   mytitle   = title to show
-%   dynamic   = set to 0 for no interaction (default is 1)
+%   LIMO.mat   = Name of the file to image
+%   toplot     = 2D matrix to plot (typically t/F values)
+%   mask       = areas for which to show data (to show all mask = ones(size(topolot))
+%   mytitle    = title to show
+%   dynamic    = set to 0 for no interaction (default is 1)
+%   parent_tab = optional parent uitab to create plots within (default is [])
 %
 % The colour scales are from https://github.com/CPernet/brain_colours
 % using linear luminance across the range with cool for negative and 
@@ -27,6 +28,9 @@ function limo_display_image(LIMO,toplot,mask,mytitle,dynamic)
 
 if nargin == 4
     dynamic = 1;
+    parent_tab = [];
+elseif nargin == 5
+    parent_tab = [];
 end
 
 %% get some informations for the plots
@@ -176,10 +180,21 @@ end
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% make the main figure
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-figure; set(gcf,'Color','w','InvertHardCopy','off');
+if ~isempty(parent_tab)
+    % Use the provided parent tab
+    fig = ancestor(parent_tab, 'figure');
+    set(fig,'Color','w','InvertHardCopy','off');
+else
+    % Create new figure
+    figure; set(gcf,'Color','w','InvertHardCopy','off');
+end
 
 % course plot at best electrode
-ax(3) = subplot(3,3,9);
+if ~isempty(parent_tab)
+    ax(3) = subplot(3,3,9,'Parent',parent_tab);
+else
+    ax(3) = subplot(3,3,9);
+end
 if ~isfield(LIMO.data, 'chanlocs') || isfield(LIMO.data,'expected_chanlocs')
     LIMO.data.chanlocs = LIMO.data.expected_chanlocs;
 end
@@ -236,7 +251,11 @@ title(mytitle2,'FontSize',12)
 % ---------------------
 if size(toplot,1) ~= 1 && ~strcmpi(LIMO.Analysis,'Time-Frequency')
     
-    ax(2) = subplot(3,3,6);
+    if ~isempty(parent_tab)
+        ax(2) = subplot(3,3,6,'Parent',parent_tab);
+    else
+        ax(2) = subplot(3,3,6);
+    end
     opt   = {'maplimits','maxmin','verbose','off','colormap', limo_color_images(toplot)};
     
     if isfield(LIMO,'Type')
@@ -277,7 +296,11 @@ end
 
 % images toplot
 % -------------------------------
-ax(1) = subplot(3,3,[1 2 4 5 7 8]);
+if ~isempty(parent_tab)
+    ax(1) = subplot(3,3,[1 2 4 5 7 8],'Parent',parent_tab);
+else
+    ax(1) = subplot(3,3,[1 2 4 5 7 8]);
+end
 if strcmpi(LIMO.Analysis,'Time')
     imagesc(timevect,1:size(toplot,1),scale);
     colormap(gca, cc);
@@ -288,7 +311,7 @@ elseif strcmpi(LIMO.Analysis,'Time-Frequency')
     imagesc(timevect,freqvect,scale);
     colormap(gca, cc);
 end
-set_imgaxes(LIMO,scale);
+set_imgaxes(LIMO,scale,ax(1));
 title(mytitle,'Fontsize',12)
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -378,7 +401,11 @@ if dynamic == 1
                 
                 if strcmpi(LIMO.Analysis,'Time')
                     if ~contains(LIMO.design.name, ['one ' LIMO.Type(1:end-1)]) && ~isempty(LIMO.data.chanlocs)
-                        subplot(3,3,6,'replace');
+                        if ~isempty(parent_tab)
+                            subplot(3,3,6,'Parent',parent_tab,'replace');
+                        else
+                            subplot(3,3,6,'replace');
+                        end
                         if size(toplot,2) == 1
                             topoplot(toplot(:,1),LIMO.data.chanlocs,opt{:});
                             title('topoplot','FontSize',12)
@@ -390,7 +417,11 @@ if dynamic == 1
                     
                 elseif strcmpi(LIMO.Analysis,'Frequency')
                     if ~contains(LIMO.design.name, ['one ' LIMO.Type(1:end-1)]) && ~isempty(LIMO.data.chanlocs)
-                        subplot(3,3,6,'replace');
+                        if ~isempty(parent_tab)
+                            subplot(3,3,6,'Parent',parent_tab,'replace');
+                        else
+                            subplot(3,3,6,'replace');
+                        end
                         if size(toplot,2) == 1
                             topoplot(toplot(:,1),LIMO.data.chanlocs,opt{:});
                             title('topoplot','FontSize',12)
@@ -401,7 +432,11 @@ if dynamic == 1
                     end
                 end
                 
-                subplot(3,3,9,'replace');
+                if ~isempty(parent_tab)
+                    subplot(3,3,9,'Parent',parent_tab,'replace');
+                else
+                    subplot(3,3,9,'replace');
+                end
                 if size(toplot,2) == 1
                     bar(toplot(y,1)); grid on; axis([0 2 0 max(toplot(:))+0.2]); ylabel('stat value')
                     if isfield(LIMO,'Type')
@@ -442,7 +477,11 @@ if dynamic == 1
                 end
                 title(mytitle2,'FontSize',12);
 
-                subplot(3,3,[1 2 4 5 7 8]); colormap(gca, cc);
+                if ~isempty(parent_tab)
+                    subplot(3,3,[1 2 4 5 7 8],'Parent',parent_tab); colormap(gca, cc);
+                else
+                    subplot(3,3,[1 2 4 5 7 8]); colormap(gca, cc);
+                end
                 
                 try
                     p_values = evalin('base','p_values');
@@ -470,33 +509,37 @@ end
 
 %% set axes and labels 
 % -------------------------------------------------------------------------
-function set_imgaxes(LIMO,scale)
+function set_imgaxes(LIMO,scale,axes_handle)
 
-img_prop = get(gca);
-set(gca,'LineWidth',2)
+if nargin < 3
+    axes_handle = gca;
+end
+
+img_prop = get(axes_handle);
+set(axes_handle,'LineWidth',0.5)
 
 % ----- X --------
 if strcmpi(LIMO.Analysis,'Time') || strcmpi(LIMO.Analysis,'Time-Frequency')
-    xlabel('Time in ms','FontSize',10)
+    xlabel(axes_handle,'Time in ms','FontSize',10)
 elseif strcmpi(LIMO.Analysis,'Frequency')
-    xlabel('Frequency in Hz','FontSize',10)
+    xlabel(axes_handle,'Frequency in Hz','FontSize',10)
 end
  
 % ----- Y --------
 if strcmpi(LIMO.Analysis,'Time-Frequency')
-    ylabel('Frequency in Hz','FontSize',10)
+    ylabel(axes_handle,'Frequency in Hz','FontSize',10)
 else
     if strcmpi(LIMO.Type,'Components')
         if size(scale,1) == 1
-            ylabel('Optimized component','FontSize',10);
+            ylabel(axes_handle,'Optimized component','FontSize',10);
         else
-            ylabel('Components','FontSize',10);
+            ylabel(axes_handle,'Components','FontSize',10);
         end
     else
         if size(scale,1) == 1
-            ylabel('Optimized channel','FontSize',10);
+            ylabel(axes_handle,'Optimized channel','FontSize',10);
         else
-            ylabel('Channels','FontSize',10);
+            ylabel(axes_handle,'Channels','FontSize',10);
         end
     end
     
@@ -510,10 +553,10 @@ else
     newticks = unique(newticks);
     Ylabels  = Ylabels(newticks);
     if size(scale,1) == 1
-        set(gca,'YTick',1);
+        set(axes_handle,'YTick',1);
     else
-        set(gca,'YTick',newticks);
-        set(gca,'YTickLabel', Ylabels);
+        set(axes_handle,'YTick',newticks);
+        set(axes_handle,'YTickLabel', Ylabels);
     end
 end
 
@@ -521,11 +564,11 @@ end
 try
     maxval = max(abs(max(scale(:))),abs(min(scale(:))));
     if max(scale(:)) < 0
-        caxis([-maxval 0])
+        caxis(axes_handle,[-maxval 0])
     elseif min(scale(:)) > 0 
-        caxis([0 maxval])
+        caxis(axes_handle,[0 maxval])
     else
-        caxis([-maxval maxval])
+        caxis(axes_handle,[-maxval maxval])
     end
 catch caxiserror
     fprintf('axis issue: %s\n',caxiserror.message)

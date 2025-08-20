@@ -410,11 +410,33 @@ if LIMO.Level == 1
                         topoplot(Discriminant_coeff(:,t,1),LIMO.data.chanlocs, 'electrodes','off','style','map','whitebk', 'on','colormap',cc);colorbar;
                         title('Z1','Fontsize',14); colormap(z1, 'hot');
                     end
-                    limo_display_image(LIMO,abs(Discriminant_coeff(:,:,1)),abs(Discriminant_coeff(:,:,1)),'Discriminant coefficients Z1',flag)
-
-                    % Create 3D surface plot
+                    % Create tabbed figure with 2D and 3D views for discriminant analysis
                     if ~strcmpi(LIMO.Analysis,'Time-Frequency') % Only for 2D data
-                        figure; set(gcf,'Color','w');
+                        % Create main tabbed figure
+                        main_fig = figure('Color','w','Name','Discriminant coefficients Z1 - Results');
+                        tab_group = uitabgroup(main_fig);
+                        
+                        % Size figure to match MATLAB desktop
+                        try
+                            desktop_pos = get(0, 'ScreenSize');  % [left, bottom, width, height] of screen
+                            % Use 90% of screen size with some margin
+                            fig_width = desktop_pos(3) * 0.9;
+                            fig_height = desktop_pos(4) * 0.8;
+                            fig_left = desktop_pos(3) * 0.05;  % 5% margin from left
+                            fig_bottom = desktop_pos(4) * 0.1;  % 10% margin from bottom
+                            set(main_fig, 'Position', [fig_left, fig_bottom, fig_width, fig_height]);
+                        catch
+                            % Fallback to default if sizing fails
+                            set(main_fig, 'Position', [100, 100, 1200, 800]);
+                        end
+                        
+                        % Create 2D view tab first
+                        tab_2d = uitab(tab_group, 'Title', '2D View');
+                        limo_display_image(LIMO,abs(Discriminant_coeff(:,:,1)),abs(Discriminant_coeff(:,:,1)),'Discriminant coefficients Z1',flag,tab_2d);
+                        
+                        % Create 3D view tab  
+                        tab_3d = uitab(tab_group, 'Title', '3D View');
+                        axes_3d = axes('Parent', tab_3d);
                         
                         % Prepare data
                         if strcmpi(LIMO.Analysis,'Time')
@@ -441,7 +463,7 @@ if LIMO.Level == 1
                         [X, Z] = meshgrid(xvect, channel_vector);
                         
                         % Plot 3D surface
-                        surf(X, toplot, Z, 'EdgeColor', 'none', 'FaceAlpha', 0.9);
+                        surf(axes_3d, X, toplot, Z, 'EdgeColor', 'none', 'FaceAlpha', 0.9);
                         
                         % Customize the plot
                         % Set Y-axis limits to encompass full range of statistical values
@@ -449,44 +471,138 @@ if LIMO.Level == 1
                         y_max = max(toplot(:));
                         y_range = y_max - y_min;
                         y_margin = y_range * 0.05; % Add 5% margin
-                        ylim([y_min - y_margin, y_max + y_margin]);
-                        xlabel(xlabel_text, 'FontSize', 14);
-                        ylabel('F values', 'FontSize', 14);
-                        zlabel('Channels', 'FontSize', 14);
-                        title([mytitle ' - 3D View'], 'FontSize', 16);
+                        ylim(axes_3d, [y_min - y_margin, y_max + y_margin]);
+                        xlabel(axes_3d, xlabel_text, 'FontSize', 14);
+                        ylabel(axes_3d, 'F values', 'FontSize', 14);
+                        zlabel(axes_3d, 'Channels', 'FontSize', 14);
+                        title(axes_3d, 'Discriminant coefficients Z1 - 3D View', 'FontSize', 16);
                         
                         % Set colormap
-                        colormap(limo_color_images(toplot));
-                        colorbar;
+                        colormap(axes_3d, limo_color_images(toplot));
+                        cb = colorbar(axes_3d);
+                set(cb, 'Color', 'k'); % Make colorbar text black
                         
                         % Adjust view angle
-                        view([-45 30]);
+                        view(axes_3d, [-45 30]);
                         
                         % Set z-axis ticks and labels
                         if num_channels <= 20
-                            set(gca, 'ZTick', channel_vector);
+                            set(axes_3d, 'ZTick', channel_vector);
                             if exist('label_electrodes','var') && ~isempty(label_electrodes)
-                                set(gca, 'ZTickLabel', flipud(label_electrodes(:)));
+                                set(axes_3d, 'ZTickLabel', flipud(label_electrodes(:)));
                             end
                         else
                             % For many channels, show fewer labels
                             tick_indices = round(linspace(1, num_channels, min(10, num_channels)));
-                            set(gca, 'ZTick', tick_indices);
+                            set(axes_3d, 'ZTick', tick_indices);
                             if exist('label_electrodes','var') && ~isempty(label_electrodes)
-                                set(gca, 'ZTickLabel', label_electrodes(tick_indices));
+                                set(axes_3d, 'ZTickLabel', label_electrodes(tick_indices));
                             end
                         end
                         
                         % Add grid and lighting
-                        grid on;
+                        grid(axes_3d, 'on');
                         light('Position', [-1 -1 2], 'Style', 'local');
                         lighting gouraud;
                         material dull;
+                        
+                        % Apply cluster visualization if available
+                        if exist('mask','var') && ~isempty(mask) && MCC == 2 && max(mask(:)) > 1
+                            hold(axes_3d, 'on');
+                            % Create cluster-specific visualization  
+                            n_cluster = max(mask(:));
+                            % Use distinguishable colors, avoiding light colors
+                            cluster_colors = [
+                                0.0000 0.4470 0.7410;  % Blue
+                                0.8500 0.3250 0.0980;  % Orange  
+                                0.9290 0.6940 0.1250;  % Yellow
+                                0.4940 0.1840 0.5560;  % Purple
+                                0.4660 0.6740 0.1880;  % Green
+                                0.3010 0.7450 0.9330;  % Cyan
+                                0.6350 0.0780 0.1840   % Dark Red
+                            ];
+                            % Repeat colors if more clusters than predefined colors
+                            if n_cluster > size(cluster_colors, 1)
+                                cluster_colors = repmat(cluster_colors, ceil(n_cluster/size(cluster_colors,1)), 1);
+                            end
+                            
+                            % Store handles for legend
+                            h_clusters = [];
+                            
+                            for cluster_id = 1:n_cluster
+                                cluster_data = toplot;
+                                cluster_data(mask ~= cluster_id) = NaN;
+                                
+                                % Plot each cluster with a different color
+                                h_cluster = surf(X, cluster_data, Z, 'EdgeColor', 'none', 'FaceAlpha', 0.8);
+                                set(h_cluster, 'FaceColor', cluster_colors(cluster_id, :));
+                                h_clusters(cluster_id) = h_cluster;
+                            end
+                            
+                            % Update title for 3D view
+                            title([mytitle ' - 3D View'], 'FontSize', 16);
+                            
+                            % Add threshold plane for reference
+                            if p > 0 && p <= 1  % Valid p-value threshold
+                                % Compute statistical threshold
+                                % Try to get degrees of freedom from LIMO structure
+                                if isfield(LIMO, 'model') && isfield(LIMO.model, 'model_df')
+                                    df_vals = LIMO.model.model_df;
+                                    if length(df_vals) >= 2
+                                        stat_threshold = finv(1-p, df_vals(1), df_vals(2));  % F-distribution
+                                        is_ttest = false;
+                                    else
+                                        stat_threshold = tinv(1-p/2, df_vals(1));       % t-distribution (two-tailed)
+                                        is_ttest = true;
+                                    end
+                                else
+                                    % Use a default threshold and detect t-test from title
+                                    stat_threshold = -log10(p) * 2; % Rough approximation
+                                    is_ttest = contains(lower(mytitle), {'ttest', 't values', 'paired', 'one sample'});
+                                end
+                                
+                                % Create threshold plane as solid surface
+                                [X_thresh, Z_thresh] = meshgrid(xvect, channel_vector);
+                                threshold_handles = [];
+                                threshold_labels = {};
+                                
+                                % Always add positive threshold
+                                Y_thresh_pos = ones(size(X_thresh)) * stat_threshold;
+                                h_thresh_pos = surf(X_thresh, Y_thresh_pos, Z_thresh, 'FaceAlpha', 0.25, 'EdgeColor', 'none', 'FaceColor', 'red');
+                                threshold_handles(end+1) = h_thresh_pos;
+                                
+                                % Only add negative threshold for explicit t-tests with significant negative clusters
+                                has_negative_clusters = is_ttest && any(toplot(:) < -stat_threshold) && any(mask(:) > 0 & toplot(:) < 0);
+                                if has_negative_clusters
+                                    Y_thresh_neg = ones(size(X_thresh)) * (-stat_threshold);
+                                    h_thresh_neg = surf(X_thresh, Y_thresh_neg, Z_thresh, 'FaceAlpha', 0.25, 'EdgeColor', 'none', 'FaceColor', 'blue');
+                                    threshold_handles(end+1) = h_thresh_neg;
+                                    threshold_labels = {sprintf('+Threshold (p=%.3f)', p), sprintf('-Threshold (p=%.3f)', p)};
+                                else
+                                    threshold_labels = {sprintf('Threshold (p=%.3f)', p)};
+                                end
+                                
+                                % Create legend with proper handles and light mode styling
+                                legend_entries = cell(n_cluster + length(threshold_labels), 1);
+                                legend_handles = [h_clusters, threshold_handles];
+                                for i = 1:n_cluster
+                                    legend_entries{i} = sprintf('Cluster %d', i);
+                                end
+                                for i = 1:length(threshold_labels)
+                                    legend_entries{n_cluster + i} = threshold_labels{i};
+                                end
+                                h_legend = legend(legend_handles, legend_entries, 'Location', 'best');
+                                set(h_legend, 'Color', 'white', 'TextColor', 'black', 'EdgeColor', 'black');
+                            end
+                        end
                         
                         % Store the 3D plot data
                         assignin('base', 'Plot3D_X', X);
                         assignin('base', 'Plot3D_Y', toplot);
                         assignin('base', 'Plot3D_Z', Z);
+                    else
+                        % If no 3D plot created for discriminant analysis, use normal display
+                        limo_display_image(LIMO,abs(Discriminant_coeff(:,:,1)),abs(Discriminant_coeff(:,:,1)),'Discriminant coefficients Z1',flag)
                     end
                     
                     %                     figure;set(gcf,'Color','w');
@@ -1247,7 +1363,22 @@ elseif LIMO.Level == 2
         if Type == 1 && ~strcmpi(LIMO.Analysis,'Time-Frequency') && ~strcmpi(LIMO.Analysis,'ITC')
             % Create 3D surface plot for Level 2
             if Type == 1 && ~strcmpi(LIMO.Analysis,'Time-Frequency') && ~strcmpi(LIMO.Analysis,'ITC')
-                figure; set(gcf,'Color','w');
+                % Create 3D figure window
+                main_fig = figure('Color','w','Name',[mytitle ' - 3D View']);
+                
+                % Size figure to match MATLAB desktop
+                try
+                    desktop_pos = get(0, 'ScreenSize');  % [left, bottom, width, height] of screen
+                    % Use 90% of screen size with some margin
+                    fig_width = desktop_pos(3) * 0.9;
+                    fig_height = desktop_pos(4) * 0.8;
+                    fig_left = desktop_pos(3) * 0.05;  % 5% margin from left
+                    fig_bottom = desktop_pos(4) * 0.1;  % 10% margin from bottom
+                    set(main_fig, 'Position', [fig_left, fig_bottom, fig_width, fig_height]);
+                catch
+                    % Fallback to default if sizing fails
+                    set(main_fig, 'Position', [100, 100, 1200, 800]);
+                end
                 
                 % Prepare data
                 if strcmpi(LIMO.Analysis,'Time')
@@ -1273,8 +1404,11 @@ elseif LIMO.Level == 2
                 % Create meshgrid for 3D plotting
                 [T, C] = meshgrid(time_vect, channel_vector);
                 
+                % Create axes in the 3D figure
+                axes_3d = axes('Parent', main_fig);
+                
                 % Plot 3D surface
-                surf(C, T, toplot, 'EdgeColor', 'none', 'FaceAlpha', 0.9);
+                surf(axes_3d, C, T, toplot, 'EdgeColor', 'none', 'FaceAlpha', 0.9);
                 
                 % Customize the plot
                 % Set Z-axis limits to encompass full range of statistical values
@@ -1282,53 +1416,298 @@ elseif LIMO.Level == 2
                 z_max = max(toplot(:));
                 z_range = z_max - z_min;
                 z_margin = z_range * 0.05; % Add 5% margin
-                zlim([z_min - z_margin, z_max + z_margin]);
-                set(gca, 'Color', [1 1 1]); % White background for the axes
-                xlabel('Channels', 'FontSize', 14, 'Color', 'k');
-                ylabel(time_label, 'FontSize', 14, 'Color', 'k');
-                zlabel('Statistical values', 'FontSize', 14, 'Color', 'k');
-                title_handle = title([mytitle ' - 3D View'], 'FontSize', 16);
+                zlim(axes_3d, [z_min - z_margin, z_max + z_margin]);
+                set(axes_3d, 'Color', [1 1 1]); % White background for the axes
+                xlabel(axes_3d, 'Channels', 'FontSize', 14, 'Color', 'k');
+                ylabel(axes_3d, time_label, 'FontSize', 14, 'Color', 'k');
+                zlabel(axes_3d, 'Statistical values', 'FontSize', 14, 'Color', 'k');
+                title_handle = title(axes_3d, [mytitle ' - 3D View'], 'FontSize', 16);
                 set(title_handle, 'Color', 'k');
-                set(gca, 'XColor', 'k', 'YColor', 'k', 'ZColor', 'k'); % Black axes lines and ticks
+                set(axes_3d, 'XColor', 'k', 'YColor', 'k', 'ZColor', 'k'); % Black axes lines and ticks
 
                 % Set colormap
-                colormap(limo_color_images(toplot));
-                colorbar;
+                colormap(axes_3d, limo_color_images(toplot));
+                cb = colorbar(axes_3d);
+                set(cb, 'Color', 'k'); % Make colorbar text black
                 
                 % Adjust view angle
-                view([-45 30]);
+                view(axes_3d, [-45 30]);
                 
                 % Set x-axis ticks and labels for channels
                 if num_channels <= 20
-                    set(gca, 'XTick', channel_vector);
+                    set(axes_3d, 'XTick', channel_vector);
                     % Get channel labels
                     if isempty(LIMO.design.electrode)
                         label_electrodes = cell(length(LIMO.data.chanlocs), 1);
                         for i = 1:length(LIMO.data.chanlocs)
                             label_electrodes{i} = LIMO.data.chanlocs(i).labels;
                         end
-                        set(gca, 'XTickLabel', label_electrodes);
+                        set(axes_3d, 'XTickLabel', label_electrodes);
                     else
                         if length(LIMO.design.electrode) == 1
-                            set(gca, 'XTickLabel', {num2str(LIMO.design.electrode)});
+                            set(axes_3d, 'XTickLabel', {num2str(LIMO.design.electrode)});
                         end
                     end
                 else
                     % For many channels, show fewer labels
                     tick_indices = round(linspace(1, num_channels, min(10, num_channels)));
-                    set(gca, 'XTick', tick_indices);
+                    set(axes_3d, 'XTick', tick_indices);
                     if isempty(LIMO.design.electrode)
                         tick_labels = cell(1, length(tick_indices));
                         for i_tick = 1:length(tick_indices)
                             tick_labels{i_tick} = LIMO.data.chanlocs(tick_indices(i_tick)).labels;
                         end
-                        set(gca, 'XTickLabel', tick_labels);
+                        set(axes_3d, 'XTickLabel', tick_labels);
                     end
                 end
                 
                 % Add grid and lighting
-                grid on;
-                set(gca, 'GridColor', 'k', 'GridAlpha', 0.5); % Black grid
+                grid(axes_3d, 'on');
+                set(axes_3d, 'GridColor', 'k', 'GridAlpha', 0.5); % Black grid
+                light('Position', [-1 -1 2], 'Style', 'local');
+                lighting gouraud;
+                material dull;
+                
+                % Apply cluster visualization if available
+                if exist('mask','var') && ~isempty(mask) && MCC == 2 && max(mask(:)) > 1
+                    hold(axes_3d, 'on');
+                    % Create cluster-specific visualization  
+                    n_cluster = max(mask(:));
+                    % Use distinguishable colors, avoiding light colors
+                    cluster_colors = [
+                        0.0000 0.4470 0.7410;  % Blue
+                        0.8500 0.3250 0.0980;  % Orange  
+                        0.9290 0.6940 0.1250;  % Yellow
+                        0.4940 0.1840 0.5560;  % Purple
+                        0.4660 0.6740 0.1880;  % Green
+                        0.3010 0.7450 0.9330;  % Cyan
+                        0.6350 0.0780 0.1840   % Dark Red
+                    ];
+                    
+                    h_clusters = gobjects(n_cluster, 1);
+                    legend_handles = [];
+                    legend_entries = {};
+                    
+                    for cluster_id = 1:n_cluster
+                        cluster_mask = (mask == cluster_id);
+                        if sum(cluster_mask(:)) > 0
+                            cluster_data = nan(size(toplot));
+                            cluster_data(cluster_mask) = toplot(cluster_mask);
+                            
+                            % Create surface for this cluster
+                            if cluster_id <= size(cluster_colors, 1)
+                                color_idx = cluster_id;
+                            else
+                                color_idx = mod(cluster_id - 1, size(cluster_colors, 1)) + 1;
+                            end
+                            
+                            h_cluster = surf(axes_3d, C, T, cluster_data, 'EdgeColor', 'none', 'FaceAlpha', 0.8);
+                            set(h_cluster, 'FaceColor', cluster_colors(color_idx, :));
+                            h_clusters(cluster_id) = h_cluster;
+                            
+                            % Add to legend
+                            legend_handles(end+1) = h_cluster;
+                            legend_entries{end+1} = sprintf('Cluster %d', cluster_id);
+                        end
+                    end
+                    
+                end
+                
+                % Add significance threshold planes for reference
+                threshold_handles = [];
+                threshold_entries = {};
+                
+                if p > 0 && p <= 1  % Valid p-value threshold
+                    hold(axes_3d, 'on');
+                    % Compute statistical threshold
+                    % Try to get degrees of freedom from LIMO structure
+                    if isfield(LIMO, 'model') && isfield(LIMO.model, 'model_df')
+                        df = LIMO.model.model_df(2);  % Error degrees of freedom
+                    elseif isfield(LIMO, 'design') && isfield(LIMO.design, 'nb_subjects')
+                        df = LIMO.design.nb_subjects - 2;  % Simple approximation
+                    else
+                        df = 30;  % Default fallback
+                    end
+                    
+                    % Determine test type and compute threshold
+                    % Check for F-test/ANOVA first (takes precedence)
+                    is_ftest = contains(lower(FileName), 'f') || contains(lower(mytitle), 'f') || ...
+                               contains(lower(FileName), 'anova') || contains(lower(mytitle), 'anova') || ...
+                               contains(lower(FileName), 'interaction') || contains(lower(mytitle), 'interaction');
+                    is_ttest = ~is_ftest && (contains(lower(FileName), 't') || contains(lower(mytitle), 't'));
+                    
+                    if is_ftest
+                        % For F-statistics or ANOVA
+                        stat_threshold = finv(1 - p, 1, df);  % F-test
+                    elseif is_ttest
+                        stat_threshold = tinv(1 - p/2, df);  % Two-tailed t-test
+                    else
+                        % Default to F-test if uncertain
+                        stat_threshold = finv(1 - p, 1, df);  % F-test
+                        is_ftest = true;
+                    end
+                    
+                    % Create threshold planes
+                    [C_thresh, T_thresh] = meshgrid(channel_vector, time_vect);
+                    Z_thresh_pos = ones(size(C_thresh)) * stat_threshold;
+                    
+                    % Plot positive threshold plane (red, top)
+                    h_pos_thresh = surf(axes_3d, C_thresh, T_thresh, Z_thresh_pos, 'FaceColor', 'red', 'FaceAlpha', 0.5, 'EdgeColor', 'none');
+                    threshold_handles(end+1) = h_pos_thresh;
+                    
+                    if is_ttest && ~is_ftest
+                        threshold_entries{end+1} = sprintf('Significance threshold (±%.2f)', stat_threshold);
+                        % Plot negative threshold plane (blue, bottom) for t-tests only
+                        Z_thresh_neg = ones(size(C_thresh)) * (-stat_threshold);
+                        h_neg_thresh = surf(axes_3d, C_thresh, T_thresh, Z_thresh_neg, 'FaceColor', 'blue', 'FaceAlpha', 0.5, 'EdgeColor', 'none');
+                        threshold_handles(end+1) = h_neg_thresh;
+                        threshold_entries{end+1} = 'Negative threshold';
+                    else
+                        % For F-tests/ANOVA, only positive threshold makes sense
+                        threshold_entries{end+1} = sprintf('Significance threshold (%.2f)', stat_threshold);
+                    end
+                end
+                
+                % Combine legend entries
+                if exist('legend_handles', 'var') && ~isempty(legend_handles) && ~isempty(threshold_handles)
+                    % Combine cluster and threshold legend entries
+                    all_handles = [legend_handles, threshold_handles];
+                    all_entries = [legend_entries, threshold_entries];
+                    h_legend = legend(axes_3d, all_handles, all_entries, 'Location', 'best');
+                    set(h_legend, 'Color', 'white', 'TextColor', 'black', 'EdgeColor', 'black');
+                elseif exist('legend_handles', 'var') && ~isempty(legend_handles)
+                    % Only cluster legend
+                    h_legend = legend(axes_3d, legend_handles, legend_entries, 'Location', 'best');
+                    set(h_legend, 'Color', 'white', 'TextColor', 'black', 'EdgeColor', 'black');
+                elseif ~isempty(threshold_handles)
+                    % Only threshold legend
+                    h_legend = legend(axes_3d, threshold_handles, threshold_entries, 'Location', 'best');
+                    set(h_legend, 'Color', 'white', 'TextColor', 'black', 'EdgeColor', 'black');
+                end
+                
+                % Store the 3D plot data
+                assignin('base', 'Plot3D_X', C);
+                assignin('base', 'Plot3D_Y', T);
+                assignin('base', 'Plot3D_Z', toplot);
+                
+                % Use the 2D view tab - but call limo_display_image WITHOUT parent_tab to avoid topoplot issues
+                limo_display_image(LIMO,toplot,mask,mytitle,flag)
+            else
+                % If no 3D plot created, use normal display
+                limo_display_image(LIMO,toplot,mask,mytitle,flag)
+            end
+            
+        elseif Type == 1 && strcmpi(LIMO.Analysis,'Time-Frequency') || ...
+                Type == 1 && strcmpi(LIMO.Analysis,'ITC')
+            if ndims(toplot)==3
+                limo_display_image_tf(LIMO,toplot,mask,mytitle,flag);
+            else
+                limo_display_image(LIMO,squeeze(toplot),squeeze(mask),mytitle,flag)
+            end
+            
+            
+        elseif Type == 2
+            %--------------------------
+            % topoplot
+            %--------------------------
+            
+            if strcmpi(LIMO.Analysis,'Time-Frequency')
+                errordlg('topoplot not supported for time-frequency analyses')
+            else
+                if isfield(LIMO.design,'channel')  % not full scalp
+                    if ~isempty(LIMO.design.electrode)
+                        msgbox('Only one channel found','No topoplot')
+                        return
+                    end
+                end
+            end
+            
+            if sum(mask(:)) == 0
+                warndlg('no values under threshold','no significant effect');
+            else
+                EEG.data     = toplot;
+                EEG.setname  = mytitle;
+                EEG.nbchan   = size(EEG.data,1);
+                EEG.pnts     = size(EEG.data,2);
+                EEG.trials   = 1;
+                EEG.chanlocs = LIMO.data.chanlocs;
+                EEG.xmin     = LIMO.data.start/1000;
+                EEG.xmax     = LIMO.data.end/1000;
+                EEG.times    = linspace(EEG.xmin,EEG.xmax,EEG.pnts);
+                pop_topoplot(EEG);
+                assignin('base','Plotted_data',EEG.data)
+            end
+            
+    elseif Type == 3
+        
+        %--------------------------
+        % Course plot
+        %--------------------------       
+        
+        if contains(FileName,'one_sample','IgnoreCase',true) || contains(FileName,'two_samples','IgnoreCase',true) || ...
+                contains(FileName,'paired_samples','IgnoreCase',true) || contains(FileName,'con_','IgnoreCase',true) || ...
+                contains(FileName,'ess_','IgnoreCase',true)
+            % ------------------------------------------------------------------------------------------------------------
+            % stat file dim = (electrodes, frames, [mean value, se, df, t, p])
+            % H0 file dim = (electrodes,frames,[t, p],nboot)
+            
+            data = load(fullfile(PathName,FileName));
+            data = data.(cell2mat(fieldnames(data)));
+                
+                % Customize the plot
+                % Set Z-axis limits to encompass full range of statistical values
+                z_min = min(toplot(:));
+                z_max = max(toplot(:));
+                z_range = z_max - z_min;
+                z_margin = z_range * 0.05; % Add 5% margin
+                zlim(axes_3d, [z_min - z_margin, z_max + z_margin]);
+                set(axes_3d, 'Color', [1 1 1]); % White background for the axes
+                xlabel(axes_3d, 'Channels', 'FontSize', 14, 'Color', 'k');
+                ylabel(axes_3d, time_label, 'FontSize', 14, 'Color', 'k');
+                zlabel(axes_3d, 'Statistical values', 'FontSize', 14, 'Color', 'k');
+                title_handle = title(axes_3d, [mytitle ' - 3D View'], 'FontSize', 16);
+                set(title_handle, 'Color', 'k');
+                set(axes_3d, 'XColor', 'k', 'YColor', 'k', 'ZColor', 'k'); % Black axes lines and ticks
+
+                % Set colormap
+                colormap(axes_3d, limo_color_images(toplot));
+                cb = colorbar(axes_3d);
+                set(cb, 'Color', 'k'); % Make colorbar text black
+                
+                % Adjust view angle
+                view(axes_3d, [-45 30]);
+                
+                % Set x-axis ticks and labels for channels
+                if num_channels <= 20
+                    set(axes_3d, 'XTick', channel_vector);
+                    % Get channel labels
+                    if isempty(LIMO.design.electrode)
+                        label_electrodes = cell(length(LIMO.data.chanlocs), 1);
+                        for i = 1:length(LIMO.data.chanlocs)
+                            label_electrodes{i} = LIMO.data.chanlocs(i).labels;
+                        end
+                        set(axes_3d, 'XTickLabel', label_electrodes);
+                    else
+                        if length(LIMO.design.electrode) == 1
+                            set(axes_3d, 'XTickLabel', {num2str(LIMO.design.electrode)});
+                        end
+                    end
+                else
+                    % For many channels, show fewer labels
+                    tick_indices = round(linspace(1, num_channels, min(10, num_channels)));
+                    set(axes_3d, 'XTick', tick_indices);
+                    if isempty(LIMO.design.electrode)
+                        tick_labels = cell(1, length(tick_indices));
+                        for i_tick = 1:length(tick_indices)
+                            tick_labels{i_tick} = LIMO.data.chanlocs(tick_indices(i_tick)).labels;
+                        end
+                        set(axes_3d, 'XTickLabel', tick_labels);
+                    end
+                end
+                
+                % Add grid and lighting
+                grid(axes_3d, 'on');
+                set(axes_3d, 'GridColor', 'k', 'GridAlpha', 0.5); % Black grid
                 light('Position', [-1 -1 2], 'Style', 'local');
                 lighting gouraud;
                 material dull;
@@ -1338,16 +1717,127 @@ elseif LIMO.Level == 2
                     masked_data = toplot;
                     masked_data(~mask) = NaN;
                     hold on;
-                    % Overlay significant values with higher opacity
-                    surf(C, T, masked_data, 'EdgeColor', 'none', 'FaceAlpha', 1);
+                    
+                    % Check if we have cluster correction (mask contains cluster labels > 1)
+                    if MCC == 2 && max(mask(:)) > 1  % Cluster correction with multiple clusters
+                        % Create cluster-specific visualization
+                        n_cluster = max(mask(:));
+                        % Use distinguishable colors, avoiding light colors
+                        cluster_colors = [
+                            0.0000 0.4470 0.7410;  % Blue
+                            0.8500 0.3250 0.0980;  % Orange  
+                            0.9290 0.6940 0.1250;  % Yellow
+                            0.4940 0.1840 0.5560;  % Purple
+                            0.4660 0.6740 0.1880;  % Green
+                            0.3010 0.7450 0.9330;  % Cyan
+                            0.6350 0.0780 0.1840   % Dark Red
+                        ];
+                        % Repeat colors if more clusters than predefined colors
+                        if n_cluster > size(cluster_colors, 1)
+                            cluster_colors = repmat(cluster_colors, ceil(n_cluster/size(cluster_colors,1)), 1);
+                        end
+                        
+                        % Store handles for legend
+                        h_clusters = [];
+                        
+                        for cluster_id = 1:n_cluster
+                            cluster_data = toplot;
+                            cluster_data(mask ~= cluster_id) = NaN;
+                            
+                            % Plot each cluster with a different color
+                            h_cluster = surf(C, T, cluster_data, 'EdgeColor', 'none', 'FaceAlpha', 0.8);
+                            set(h_cluster, 'FaceColor', cluster_colors(cluster_id, :));
+                            h_clusters(cluster_id) = h_cluster;
+                        end
+                        
+                        % Add 3D view title
+                        title_handle = title([mytitle ' - 3D View'], 'FontSize', 16);
+                        
+                        % Add threshold plane for reference
+                        if p > 0 && p <= 1  % Valid p-value threshold
+                            % Compute statistical threshold
+                            % Try to get degrees of freedom from LIMO structure
+                            if isfield(LIMO, 'model') && isfield(LIMO.model, 'model_df')
+                                df_vals = LIMO.model.model_df;
+                                if length(df_vals) >= 2
+                                    stat_threshold = finv(1-p, df_vals(1), df_vals(2));  % F-distribution
+                                    is_ttest = false;
+                                else
+                                    stat_threshold = tinv(1-p/2, df_vals(1));       % t-distribution (two-tailed)
+                                    is_ttest = true;
+                                end
+                            else
+                                % Use a default threshold and detect t-test from title
+                                stat_threshold = -log10(p) * 2; % Rough approximation
+                                is_ttest = contains(lower(mytitle), {'ttest', 't values', 'paired', 'one sample'});
+                            end
+                            
+                            % Create threshold plane as solid surface
+                            [C_thresh, T_thresh] = meshgrid(channel_vector, time_vect);
+                            threshold_handles = [];
+                            threshold_labels = {};
+                            
+                            % Always add positive threshold
+                            Z_thresh_pos = ones(size(C_thresh)) * stat_threshold;
+                            h_thresh_pos = surf(C_thresh, T_thresh, Z_thresh_pos, 'FaceAlpha', 0.25, 'EdgeColor', 'none', 'FaceColor', 'red');
+                            threshold_handles(end+1) = h_thresh_pos;
+                            
+                            % Only add negative threshold for explicit t-tests with significant negative clusters
+                            has_negative_clusters = is_ttest && any(toplot(:) < -stat_threshold) && any(mask(:) > 0 & toplot(:) < 0);
+                            if has_negative_clusters
+                                Z_thresh_neg = ones(size(C_thresh)) * (-stat_threshold);
+                                h_thresh_neg = surf(C_thresh, T_thresh, Z_thresh_neg, 'FaceAlpha', 0.25, 'EdgeColor', 'none', 'FaceColor', 'blue');
+                                threshold_handles(end+1) = h_thresh_neg;
+                                threshold_labels = {sprintf('+Threshold (p=%.3f)', p), sprintf('-Threshold (p=%.3f)', p)};
+                            else
+                                threshold_labels = {sprintf('Threshold (p=%.3f)', p)};
+                            end
+                            
+                            % Create legend with proper handles and light mode styling
+                            legend_entries = cell(n_cluster + length(threshold_labels), 1);
+                            legend_handles = [h_clusters, threshold_handles];
+                            for i = 1:n_cluster
+                                legend_entries{i} = sprintf('Cluster %d', i);
+                            end
+                            for i = 1:length(threshold_labels)
+                                legend_entries{n_cluster + i} = threshold_labels{i};
+                            end
+                            h_legend = legend(legend_handles, legend_entries, 'Location', 'best');
+                            set(h_legend, 'Color', 'white', 'TextColor', 'black', 'EdgeColor', 'black');
+                        end
+                    else
+                        % Standard binary mask overlay
+                        surf(C, T, masked_data, 'EdgeColor', 'none', 'FaceAlpha', 1);
+                        
+                        % Add threshold plane for reference (even for binary mask)
+                        if p > 0 && p <= 1  % Valid p-value threshold
+                            % Compute statistical threshold based on degrees of freedom
+                            if exist('df','var') && ~isempty(df)
+                                stat_threshold = finv(1-p, df(1), df(2));
+                            else
+                                % Use a default threshold based on p-value (approximate)
+                                stat_threshold = -log10(p) * 2; % Rough approximation
+                            end
+                            
+                            % Create threshold plane
+                            [C_thresh, T_thresh] = meshgrid(channel_vector, time_vect);
+                            Z_thresh = ones(size(C_thresh)) * stat_threshold;
+                            mesh(C_thresh, T_thresh, Z_thresh, 'FaceAlpha', 0.2, 'EdgeColor', 'red', 'LineWidth', 1);
+                        end
+                    end
                 end
                 
                 % Store the 3D plot data
                 assignin('base', 'Plot3D_X', C);
                 assignin('base', 'Plot3D_Y', T);
                 assignin('base', 'Plot3D_Z', toplot);
+                
+                % Use the 2D view tab that was created earlier
+                limo_display_image(LIMO,toplot,mask,mytitle,flag,tab_2d)
+            else
+                % If no 3D plot created, use normal display
+                limo_display_image(LIMO,toplot,mask,mytitle,flag)
             end
-            limo_display_image(LIMO,toplot,mask,mytitle,flag)
             
         elseif Type == 1 && strcmpi(LIMO.Analysis,'Time-Frequency') || ...
                 Type == 1 && strcmpi(LIMO.Analysis,'ITC')
