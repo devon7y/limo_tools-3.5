@@ -1839,78 +1839,6 @@ elseif LIMO.Level == 2
                 limo_display_image(LIMO,toplot,mask,mytitle,flag)
             end
             
-        elseif Type == 1 && strcmpi(LIMO.Analysis,'Time-Frequency') || ...
-                Type == 1 && strcmpi(LIMO.Analysis,'ITC')
-            if ndims(toplot)==3
-                limo_display_image_tf(LIMO,toplot,mask,mytitle,flag);
-            else
-                limo_display_image(LIMO,squeeze(toplot),squeeze(mask),mytitle,flag)
-            end
-            
-        elseif Type == 2
-            %--------------------------
-            % topoplot
-            %--------------------------
-            
-            if strcmpi(LIMO.Analysis,'Time-Frequency')
-                errordlg('topoplot not supported for time-frequency analyses')
-            else
-                if isfield(LIMO.design,'channel')  % not full scalp
-                    if ~isempty(LIMO.design.electrode)
-                        msgbox('Only one channel found','No topoplot')
-                        return
-                    end
-                end
-            end
-            
-            if sum(mask(:)) == 0
-                warndlg('no values under threshold','no significant effect');
-            else
-                EEG.data     = toplot;
-                EEG.setname  = mytitle;
-                EEG.chanlocs = LIMO.data.chanlocs;
-                
-                if size(toplot,2) == 1
-                    opt = {'maplimits','maxmin','verbose','off'};
-                    if isfield(LIMO,'Type')
-                        if strcmpi(LIMO.Type,'Components')
-                            opt = {'maplimits','absmax','electrodes','off','verbose','off'};
-                        end
-                    end
-                    figure; set(gcf,'Color','w','InvertHardCopy','off');
-                    topoplot(toplot(:,1),EEG.chanlocs,opt{:});
-                    title('Topoplot','FontSize',12)
-                else
-                    if strcmpi(LIMO.Analysis,'Time')
-                        EEG.xmin  = LIMO.data.start/1000; % in sec
-                        EEG.xmax  = LIMO.data.end/1000;   % in sec
-                        EEG.times = (LIMO.data.start/1000:(LIMO.data.sampling_rate/1000):LIMO.data.end/1000); % in sec;
-                        call_topolot(EEG,FileName,LIMO.Analysis)
-                        % pop_topoplot(EEG);
-                    elseif strcmpi(LIMO.Analysis,'Frequency')
-                        EEG.xmin  = LIMO.data.freqlist(1);
-                        EEG.xmax  = LIMO.data.freqlist(end);
-                        freqlist  = inputdlg('specify frequency range e.g. [5:2:40]','Choose Frequencies to plot');
-                        if isempty(freqlist)
-                            return
-                        else
-                            EEG.freq = str2double(cell2mat(freqlist));
-                            if min(EEG.freq)<EEG.xmin || max(EEG.freq)>EEG.xmax
-                                errordlg('selected frequency out of bound'); return
-                            end
-                        end
-                        call_topolot(EEG,FileName,LIMO.Analysis)
-                    end
-                    assignin('base','Plotted_data',EEG.data)
-                end
-            end
-        end
-        
-    elseif Type == 3
-        
-        %--------------------------
-        % Course plot
-        %--------------------------       
         
         if contains(FileName,'one_sample','IgnoreCase',true) || contains(FileName,'two_samples','IgnoreCase',true) || ...
                 contains(FileName,'paired_samples','IgnoreCase',true) || contains(FileName,'con_','IgnoreCase',true) || ...
@@ -3035,6 +2963,8 @@ function txt = myDataCursorText(~, event_obj, xvect, channel_vector, data, chann
     end
     
     txt = {x_label, chan_label, sprintf('Value: %.3f', data(z_idx, x_idx))};
+end
+
 end
 
 end
