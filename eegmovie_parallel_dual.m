@@ -103,7 +103,10 @@ opt = finputcheck(options, { 'startsec'    'real'    {}    0;
                              'subtitle1'   'string'  {}                '';          % New parameter
                              'subtitle2'   'string'  {}                '';          % New parameter
                              'minmax2'     'real'    {}                0;           % New parameter
+                             'colormap1'   'real'    []                [];          % New parameter
                              'colormap2'   'real'    []                [];          % New parameter
+                             'headlinewidth' 'real'    {}    [];          % New parameter
+                             'topo_linewidth' 'real'    {}    [];          % New parameter
                              'topoplotopt' 'cell'    {}    {};
                              'headplotopt' 'cell'    {}    {} }, 'eegmovie_parallel');
 if ischar(opt), error(opt); end
@@ -145,7 +148,7 @@ if opt.minmax ==0,
 end
 
 % Calculate data limits for second dataset if in dual mode
-if strcmpi(opt.layout, 'dual') && opt.minmax2 == 0
+if strcmpi(opt.layout, 'dual') && isscalar(opt.minmax2) && opt.minmax2 == 0
     datamin2 = min(min(opt.data2));
     datamax2 = max(max(opt.data2));
     absmax2  = max([abs(datamin2), abs(datamax2)]);
@@ -222,8 +225,12 @@ Colormap = [jet(64); [1 1 1]];
 
 % Setup colormaps for dual layout
 if strcmpi(opt.layout, 'dual')
-    % Default colormap for first topoplot (typically voltage data)
-    colormap1 = jet(64);  
+    if ~isempty(opt.colormap1)
+        colormap1 = opt.colormap1;
+    else
+        % Default colormap for first topoplot (typically voltage data)
+        colormap1 = jet(64);
+    end  
     
     % Colormap for second topoplot
     if ~isempty(opt.colormap2)
@@ -240,7 +247,11 @@ if strcmpi(opt.layout, 'dual')
         fprintf('Using default colormap for second topoplot (use ''colormap2'' parameter to customize)\n');
     end
 else
-    colormap1 = jet(64);
+    if ~isempty(opt.colormap1)
+        colormap1 = opt.colormap1;
+    else
+        colormap1 = jet(64);
+    end
     colormap2 = [];
 end
 
@@ -282,6 +293,10 @@ fprintf('Starting parallel frame generation at %dx%d resolution...\n', opt.resol
 local_colormap1 = colormap1;
 local_colormap2 = colormap2;
 
+% Set base font size for subtitles - THIS IS THE VALUE TO MODIFY
+subtitle_base_fontsize = 30;
+shared_subtitle_base_fontsize = subtitle_base_fontsize;
+
 parfor f = 1:mframes
     try
         % Initialize variables to prevent parfor warnings
@@ -295,6 +310,7 @@ parfor f = 1:mframes
                     'Position', [0 0 shared_opt.resolution(1) shared_opt.resolution(2)], ...
                     'Color', 'white', ...
                     'PaperPositionMode', 'auto', ...
+                    'Renderer', 'zbuffer', ...
                     'Resize', 'off');
         
         % --- DYNAMIC SCALING ---
@@ -303,9 +319,17 @@ parfor f = 1:mframes
         
         % Scale font size and line widths
         dynamic_fontsize = max(8, round(28 * scaling_factor));
-        dynamic_subtitle_fontsize = max(8, round(20 * scaling_factor));  % Smaller for subtitles
-        head_linewidth = max(0.5, 10 * scaling_factor);
-        topo_linewidth = max(0.5, scaling_factor);
+        dynamic_subtitle_fontsize = max(8, round(shared_subtitle_base_fontsize * scaling_factor));  % Smaller for subtitles
+        if ~isempty(shared_opt.headlinewidth)
+            head_linewidth = shared_opt.headlinewidth;
+        else
+            head_linewidth = max(0.5, 10 * scaling_factor);
+        end
+        if ~isempty(shared_opt.topo_linewidth)
+            topo_linewidth = shared_opt.topo_linewidth;
+        else
+            topo_linewidth = max(0.5, scaling_factor);
+        end
         
         % Get frame data
         frame_data = shared_data(:, f);
@@ -321,7 +345,7 @@ parfor f = 1:mframes
             % Left topoplot - centered vertically
             ax1 = axes('Parent', fig, ...
                       'Units', 'normalized', ...
-                      'Position', [0.05 0.25 0.4 0.6], ...  % Vertically centered
+                      'Position', [0.025, 0.025, 0.45, 0.8], ...  % Vertically centered
                       'Color', 'white');
             
             % Suppress warning locally
@@ -362,7 +386,7 @@ parfor f = 1:mframes
             
             % Add subtitle for left topoplot - lower position
             if ~isempty(shared_opt.subtitle1)
-                text(0.5, 1.08, shared_opt.subtitle1, ...
+                text(0.5, 1.02, shared_opt.subtitle1, ...
                     'Units', 'normalized', 'FontSize', dynamic_subtitle_fontsize, ...
                     'HorizontalAlignment', 'center', 'FontWeight', 'bold', 'Color', 'k');
             end
@@ -370,7 +394,7 @@ parfor f = 1:mframes
             % Right topoplot - centered vertically
             ax2 = axes('Parent', fig, ...
                       'Units', 'normalized', ...
-                      'Position', [0.55 0.25 0.4 0.6], ...  % Vertically centered
+                      'Position', [0.525, 0.025, 0.45, 0.8], ...  % Vertically centered
                       'Color', 'white');
             
             % Second topoplot with colormap2
@@ -408,9 +432,16 @@ parfor f = 1:mframes
             
             % Add subtitle for right topoplot - lower position
             if ~isempty(shared_opt.subtitle2)
-                text(0.5, 1.08, shared_opt.subtitle2, ...
-                    'Units', 'normalized', 'FontSize', dynamic_subtitle_fontsize, ...
-                    'HorizontalAlignment', 'center', 'FontWeight', 'bold', 'Color', 'k');
+                ax2_pos = get(ax2, 'Position');
+                annotation(fig, 'textbox', [ax2_pos(1), ax2_pos(2) + ax2_pos(4), ax2_pos(3), 0.05], ...
+                    'String', shared_opt.subtitle2, ...
+                    'FontSize', dynamic_subtitle_fontsize, ...
+                    'FontWeight', 'bold', ...
+                    'Color', 'k', ...
+                    'HorizontalAlignment', 'center', ...
+                    'VerticalAlignment', 'bottom', ...
+                    'EdgeColor', 'none', ...
+                    'FitBoxToText', 'on');
             end
             
             warning(oldWarning);
@@ -575,7 +606,7 @@ if strcmpi(opt.timecourse, 'off')
         end
         
         % Create axis for the frame
-        ax = axes('Position', [0.0 0.0 1.0 1.0], ...
+        ax = axes('Position', [0.01 0.01 0.98 0.98], ...
                   'Color', 'white');
         
         % Display the frame
@@ -732,7 +763,7 @@ else
         if ~isempty(opt.subtitle1)
             baseline_height = 1000;
             scaling_factor = fig_height / baseline_height;
-            dynamic_subtitle_fontsize = max(8, round(20 * scaling_factor));
+            dynamic_subtitle_fontsize = max(8, round(subtitle_base_fontsize * scaling_factor));
             
             annotation('textbox', [0.05 0.92 0.42 0.03], ...
                       'String', opt.subtitle1, ...
@@ -750,6 +781,7 @@ else
                       'FontSize', dynamic_subtitle_fontsize, ...
                       'FontWeight', 'bold', ...
                       'EdgeColor', 'none', ...
+                      'FitBoxToText', 'on', ...
                       'Color', 'black');
         end
     else
@@ -790,7 +822,7 @@ else
         set(axeegplot, 'XTickLabel', sprintf('%.3f s', x1));
         
         % Force update
-        drawnow;
+        drawnow expose;
         
         % Display topoplot frame(s)
         if strcmpi(opt.layout, 'dual')
