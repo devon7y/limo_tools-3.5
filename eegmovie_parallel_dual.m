@@ -19,6 +19,7 @@ function [Movie, Colormap] = eegmovie_parallel(data,srate,eloc_locs,varargin)
 %   'minmax2'    - Color scale limits for second dataset [min max]
 %   'colormap2'  - Colormap for second dataset (n x 3 RGB matrix)
 %                  Default: cool(64) for diverging data, hot(64) otherwise
+%   'showcolorbars' - 'on' or 'off' to show colorbars for each topoplot (default: 'off')
 %   'resolution' - [width height] in pixels. Default: [1200 1000] for single, [1600 800] for dual
 
 set(0, 'DefaultFigureColor', 'white');
@@ -105,6 +106,7 @@ opt = finputcheck(options, { 'startsec'    'real'    {}    0;
                              'minmax2'     'real'    {}                0;           % New parameter
                              'colormap1'   'real'    []                [];          % New parameter
                              'colormap2'   'real'    []                [];          % New parameter
+                             'showcolorbars' 'string' { 'on' 'off' }   'off';       % New parameter for colorbars
                              'headlinewidth' 'real'    {}    [];          % New parameter
                              'topo_linewidth' 'real'    {}    [];          % New parameter
                              'topoplotopt' 'cell'    {}    {};
@@ -323,12 +325,12 @@ parfor f = 1:mframes
         if ~isempty(shared_opt.headlinewidth)
             head_linewidth = shared_opt.headlinewidth;
         else
-            head_linewidth = max(0.5, 10 * scaling_factor);
+            head_linewidth = 50; % Fixed large value for testing
         end
         if ~isempty(shared_opt.topo_linewidth)
             topo_linewidth = shared_opt.topo_linewidth;
         else
-            topo_linewidth = max(0.5, scaling_factor);
+            topo_linewidth = 10; % Fixed large value for testing
         end
         
         % Get frame data
@@ -391,6 +393,33 @@ parfor f = 1:mframes
                     'HorizontalAlignment', 'center', 'FontWeight', 'bold', 'Color', 'k');
             end
             
+            % Add colorbar for left topoplot if requested
+            if strcmpi(shared_opt.showcolorbars, 'on')
+                % Create invisible reference image for colorbar with proper gradient
+                ax_ref1 = axes('Parent', fig, 'Position', [0.001 0.001 0.001 0.001], 'Visible', 'off');
+                imagesc(ax_ref1, linspace(shared_opt.minmax(1), shared_opt.minmax(2), 100)');
+                set(ax_ref1, 'CLim', shared_opt.minmax);
+                colormap(ax_ref1, shared_colormap1);
+                
+                % Create colorbar linked to the reference image
+                ax1_pos = get(ax1, 'Position');
+                cb1_x = ax1_pos(1) + ax1_pos(3) - 0.02;  % Position to the right of topoplot
+                cb1_y = ax1_pos(2) + 0.15;  % Vertically centered
+                cb1_width = 0.015;
+                cb1_height = ax1_pos(4) - 0.3;
+                h_cb1 = colorbar(ax_ref1, 'Position', [cb1_x cb1_y cb1_width cb1_height]);
+                
+                % Set tick marks (5 ticks: min, mid-low, 0, mid-high, max)
+                tick_values1 = [shared_opt.minmax(1), shared_opt.minmax(1)/2, 0, ...
+                               shared_opt.minmax(2)/2, shared_opt.minmax(2)];
+                tick_labels1 = arrayfun(@(x) sprintf('%.1f', x), tick_values1, 'UniformOutput', false);
+                set(h_cb1, 'Ticks', tick_values1, 'TickLabels', tick_labels1, ...
+                          'Color', 'k', 'Box', 'on', 'FontSize', dynamic_fontsize * 0.6);
+                
+                % Hide the reference axes completely
+                set(ax_ref1, 'XTick', [], 'YTick', [], 'Box', 'off');
+            end
+            
             % Right topoplot - centered vertically
             ax2 = axes('Parent', fig, ...
                       'Units', 'normalized', ...
@@ -442,6 +471,33 @@ parfor f = 1:mframes
                     'VerticalAlignment', 'bottom', ...
                     'EdgeColor', 'none', ...
                     'FitBoxToText', 'on');
+            end
+            
+            % Add colorbar for right topoplot if requested
+            if strcmpi(shared_opt.showcolorbars, 'on')
+                % Create invisible reference image for colorbar with proper gradient
+                ax_ref2 = axes('Parent', fig, 'Position', [0.001 0.002 0.001 0.001], 'Visible', 'off');
+                imagesc(ax_ref2, linspace(shared_opt.minmax2(1), shared_opt.minmax2(2), 100)');
+                set(ax_ref2, 'CLim', shared_opt.minmax2);
+                colormap(ax_ref2, shared_colormap2);
+                
+                % Create colorbar linked to the reference image
+                ax2_pos = get(ax2, 'Position');
+                cb2_x = ax2_pos(1) + ax2_pos(3) - 0.02;  % Position to the right of topoplot
+                cb2_y = ax2_pos(2) + 0.15;  % Vertically centered
+                cb2_width = 0.015;
+                cb2_height = ax2_pos(4) - 0.3;
+                h_cb2 = colorbar(ax_ref2, 'Position', [cb2_x cb2_y cb2_width cb2_height]);
+                
+                % Set tick marks (5 ticks: min, mid-low, 0, mid-high, max)
+                tick_values2 = [shared_opt.minmax2(1), shared_opt.minmax2(1)/2, 0, ...
+                               shared_opt.minmax2(2)/2, shared_opt.minmax2(2)];
+                tick_labels2 = arrayfun(@(x) sprintf('%.1f', x), tick_values2, 'UniformOutput', false);
+                set(h_cb2, 'Ticks', tick_values2, 'TickLabels', tick_labels2, ...
+                          'Color', 'k', 'Box', 'on', 'FontSize', dynamic_fontsize * 0.6);
+                
+                % Hide the reference axes completely
+                set(ax_ref2, 'XTick', [], 'YTick', [], 'Box', 'off');
             end
             
             warning(oldWarning);
@@ -919,6 +975,7 @@ if strcmpi(opt.layout, 'dual')
         colormap2_name = 'hot';
     end
     fprintf('Colormaps: jet (left) | %s (right)\n', colormap2_name);
+    fprintf('Colorbars: %s\n', opt.showcolorbars);
 end
 fprintf('Total time: %.1f seconds\n', totalTime);
 fprintf('Average time per frame: %.2f seconds\n', totalTime/mframes);
