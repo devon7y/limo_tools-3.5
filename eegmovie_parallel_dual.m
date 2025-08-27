@@ -339,10 +339,11 @@ parfor f = 1:mframes
                 'colormap', shared_colormap1, ...
                 shared_opt.topoplotopt{:});
             
-            set(gca, 'Color', 'none');
+            axis(ax1, 'equal'); % Enforce circular aspect ratio
+            set(ax1, 'Color', 'none');
             
             % Set head outline width for first topoplot
-            head_lines = findobj(gca, 'Type', 'Line', 'Color', 'k');
+            head_lines = findobj(ax1, 'Type', 'Line', 'Color', 'k');
             set(head_lines, 'LineWidth', head_linewidth);
 
             % Add circular black outline for first topoplot
@@ -384,10 +385,11 @@ parfor f = 1:mframes
                 'colormap', shared_colormap2, ...
                 shared_opt.topoplotopt{:});
             
-            set(gca, 'Color', 'none');
+            axis(ax2, 'equal'); % Enforce circular aspect ratio
+            set(ax2, 'Color', 'none');
             
             % Set head outline width for second topoplot
-            head_lines = findobj(gca, 'Type', 'Line', 'Color', 'k');
+            head_lines = findobj(ax2, 'Type', 'Line', 'Color', 'k');
             set(head_lines, 'LineWidth', head_linewidth);
 
             % Add circular black outline for second topoplot
