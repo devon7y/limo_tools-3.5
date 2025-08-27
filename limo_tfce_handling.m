@@ -50,7 +50,13 @@ end
 checkfile = 'yes';
 batch_size = 50;  % Process 50 bootstraps at a time
 temp_dir = fullfile(LIMO.dir, 'tfce', 'tfce_chunks');  % Default directory for temp files
-max_workers = 4;  % Limit parallel workers
+N = getenv('NUMBER_OF_PROCESSORS');
+if isempty(N)
+    N = feature('numcores'); % Fallback to physical cores
+else
+    N = str2double(N);
+end
+max_workers = N;  % Set workers to the number of logical cores
 
 % Parse additional inputs
 for i=2:2:nargin
