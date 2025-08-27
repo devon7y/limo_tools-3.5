@@ -240,7 +240,7 @@ if LIMO.Level == 1
                     if ndims(toplot)==3
                         limo_display_image_tf(LIMO,toplot,mask,mytitle,flag);
                     else
-                        limo_display_image(LIMO,toplot,mask,mytitle,flag)
+                        limo_display_image(LIMO,toplot,mask,mytitle,flag,[],MCC)
                     end
                 end
                 
@@ -432,7 +432,7 @@ if LIMO.Level == 1
                         
                         % Create 2D view tab first
                         tab_2d = uitab(tab_group, 'Title', '2D View');
-                        limo_display_image(LIMO,abs(Discriminant_coeff(:,:,1)),abs(Discriminant_coeff(:,:,1)),'Discriminant coefficients Z1',flag,tab_2d);
+                        limo_display_image(LIMO,abs(Discriminant_coeff(:,:,1)),abs(Discriminant_coeff(:,:,1)),'Discriminant coefficients Z1',flag,tab_2d,MCC);
                         
                         % Create 3D view tab  
                         tab_3d = uitab(tab_group, 'Title', '3D View');
@@ -602,7 +602,7 @@ if LIMO.Level == 1
                         assignin('base', 'Plot3D_Z', Z);
                     else
                         % If no 3D plot created for discriminant analysis, use normal display
-                        limo_display_image(LIMO,abs(Discriminant_coeff(:,:,1)),abs(Discriminant_coeff(:,:,1)),'Discriminant coefficients Z1',flag)
+                        limo_display_image(LIMO,abs(Discriminant_coeff(:,:,1)),abs(Discriminant_coeff(:,:,1)),'Discriminant coefficients Z1',flag,[],MCC)
                     end
                     
                     %                     figure;set(gcf,'Color','w');
@@ -1591,10 +1591,10 @@ elseif LIMO.Level == 2
                 assignin('base', 'Plot3D_Z', toplot);
                 
                 % Use the 2D view tab - but call limo_display_image WITHOUT parent_tab to avoid topoplot issues
-                limo_display_image(LIMO,toplot,mask,mytitle,flag)
+                limo_display_image(LIMO,toplot,mask,mytitle,flag,[],MCC)
             else
                 % If no 3D plot created, use normal display
-                limo_display_image(LIMO,toplot,mask,mytitle,flag)
+                limo_display_image(LIMO,toplot,mask,mytitle,flag,[],MCC)
             end
             
         elseif Type == 1 && strcmpi(LIMO.Analysis,'Time-Frequency') || ...
@@ -1602,7 +1602,7 @@ elseif LIMO.Level == 2
             if ndims(toplot)==3
                 limo_display_image_tf(LIMO,toplot,mask,mytitle,flag);
             else
-                limo_display_image(LIMO,squeeze(toplot),squeeze(mask),mytitle,flag)
+                limo_display_image(LIMO,squeeze(toplot),squeeze(mask),mytitle,flag,[],MCC)
             end
             
             
@@ -1833,10 +1833,10 @@ elseif LIMO.Level == 2
                 assignin('base', 'Plot3D_Z', toplot);
                 
                 % Use the 2D view tab that was created earlier
-                limo_display_image(LIMO,toplot,mask,mytitle,flag,tab_2d)
+                limo_display_image(LIMO,toplot,mask,mytitle,flag,tab_2d,MCC)
             else
                 % If no 3D plot created, use normal display
-                limo_display_image(LIMO,toplot,mask,mytitle,flag)
+                limo_display_image(LIMO,toplot,mask,mytitle,flag,[],MCC)
             end
             
         

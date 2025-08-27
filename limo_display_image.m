@@ -1,10 +1,10 @@
-function limo_display_image(LIMO,toplot,mask,mytitle,dynamic,parent_tab)
+function limo_display_image(LIMO,toplot,mask,mytitle,dynamic,parent_tab,MCC)
 
 % This function displays images with a intensity plotted as function of
 % time or frequency (x) and electrodes (y) - for ERSP it precomputes what
 % needs to be plotted and call LIMO_display_image_tf
 %
-% FORMAT: limo_display_image(LIMO,toplot,mask,mytitle,dynamic,parent_tab)
+% FORMAT: limo_display_image(LIMO,toplot,mask,mytitle,dynamic,parent_tab,MCC)
 %
 % INPUTS:
 %   LIMO.mat   = Name of the file to image
@@ -13,6 +13,7 @@ function limo_display_image(LIMO,toplot,mask,mytitle,dynamic,parent_tab)
 %   mytitle    = title to show
 %   dynamic    = set to 0 for no interaction (default is 1)
 %   parent_tab = optional parent uitab to create plots within (default is [])
+%   MCC        = multiple comparison correction method (optional)
 %
 % The colour scales are from https://github.com/CPernet/brain_colours
 % using linear luminance across the range with cool for negative and 
@@ -29,8 +30,12 @@ function limo_display_image(LIMO,toplot,mask,mytitle,dynamic,parent_tab)
 if nargin == 4
     dynamic = 1;
     parent_tab = [];
+    MCC = [];
 elseif nargin == 5
     parent_tab = [];
+    MCC = [];
+elseif nargin == 6
+    MCC = [];
 end
 
 %% get some informations for the plots
@@ -42,7 +47,39 @@ end
 % what do we plot?  the data (toplot) masked (tpically of significance)
 scale           = toplot.*single(mask>0);  
 scale(scale==0) = NaN;   
-cc              = limo_color_images(scale); % get a color map commensurate to that
+
+% Check if we should use cluster visualization instead of t-value heatmap
+cluster_mode = false;
+if ~isempty(MCC) && MCC == 2 && max(mask(:)) > 1
+    cluster_mode = true;
+    % Create cluster-specific visualization with uniform colors
+    n_cluster = max(mask(:));
+    
+    % Use the same color scheme as the 3D plot for consistency
+    cluster_colors = [
+        0.0000 0.4470 0.7410;  % Blue
+        0.8500 0.3250 0.0980;  % Orange  
+        0.9290 0.6940 0.1250;  % Yellow
+        0.4940 0.1840 0.5560;  % Purple
+        0.4660 0.6740 0.1880;  % Green
+        0.3010 0.7450 0.9330;  % Cyan
+        0.6350 0.0780 0.1840   % Dark Red
+    ];
+    
+    % Repeat colors if more clusters than predefined colors
+    if n_cluster > size(cluster_colors, 1)
+        cluster_colors = repmat(cluster_colors, ceil(n_cluster/size(cluster_colors,1)), 1);
+    end
+    
+    % Create cluster colormap - each cluster gets a uniform color value
+    scale = single(mask);  % Use mask values directly (cluster IDs)
+    scale(scale==0) = NaN; % Keep NaN for non-significant areas
+    
+    % Create a custom colormap for clusters
+    cc = [0.9 0.9 0.9; cluster_colors(1:n_cluster,:)]; % Gray for NaN, then cluster colors
+else
+    cc = limo_color_images(scale); % get a color map commensurate to that
+end
 
 v = max(scale(:));       % from the 2D data to plot, find max
 [e,f]=find(scale==v);    % which channel and time/frequency frame
@@ -313,6 +350,33 @@ elseif strcmpi(LIMO.Analysis,'Time-Frequency')
 end
 set_imgaxes(LIMO,scale,ax(1));
 title(mytitle,'Fontsize',12)
+
+% Add cluster legend if in cluster mode
+if cluster_mode
+    % Create a small legend subplot in the unused bottom right corner
+    if ~isempty(parent_tab)
+        legend_ax = subplot(3,3,3,'Parent',parent_tab);
+    else
+        legend_ax = subplot(3,3,3);
+    end
+    
+    % Create legend patches
+    hold(legend_ax, 'on');
+    legend_labels = cell(n_cluster, 1);
+    for cluster_id = 1:n_cluster
+        % Create a small colored rectangle
+        rectangle(legend_ax, 'Position', [0, n_cluster-cluster_id+0.2, 0.3, 0.6], ...
+                 'FaceColor', cluster_colors(cluster_id,:), 'EdgeColor', 'k');
+        legend_labels{cluster_id} = sprintf('Cluster %d', cluster_id);
+        text(legend_ax, 0.4, n_cluster-cluster_id+0.5, legend_labels{cluster_id}, ...
+             'FontSize', 10, 'VerticalAlignment', 'middle');
+    end
+    
+    set(legend_ax, 'XLim', [0, 2], 'YLim', [0, n_cluster+1]);
+    set(legend_ax, 'XTick', [], 'YTick', []);
+    title(legend_ax, 'Clusters', 'FontSize', 12);
+    axis(legend_ax, 'off');
+end
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% return cluster info
