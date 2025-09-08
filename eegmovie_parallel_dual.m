@@ -20,6 +20,9 @@ function [Movie, Colormap] = eegmovie_parallel(data,srate,eloc_locs,varargin)
 %   'colormap2'  - Colormap for second dataset (n x 3 RGB matrix)
 %                  Default: cool(64) for diverging data, hot(64) otherwise
 %   'showcolorbars' - 'on' or 'off' to show colorbars for each topoplot (default: 'off')
+%   'timecourse_channels' - Array of channel indices to display in timecourse (e.g., [1 5 10 15])
+%   'timecourse_maxchans' - Maximum number of channels to display (auto-selected, evenly spaced)
+%   'timecourse_scaling' - 'linked' (default) or 'independent' y-axis scaling for multi-channel plots
 %   'resolution' - [width height] in pixels. Default: [1200 1000] for single, [1600 800] for dual
 
 set(0, 'DefaultFigureColor', 'white');
@@ -107,6 +110,9 @@ opt = finputcheck(options, { 'startsec'    'real'    {}    0;
                              'colormap1'   'real'    []                [];          % New parameter
                              'colormap2'   'real'    []                [];          % New parameter
                              'showcolorbars' 'string' { 'on' 'off' }   'off';       % New parameter for colorbars
+                             'timecourse_channels' 'real' []    [];        % New parameter for channel selection
+                             'timecourse_maxchans' 'integer' []    [];     % New parameter for max channels
+                             'timecourse_scaling' 'string' {'linked' 'independent'} 'linked'; % New parameter for scaling
                              'headlinewidth' 'real'    {}    [];          % New parameter
                              'topo_linewidth' 'real'    {}    [];          % New parameter
                              'topoplotopt' 'cell'    {}    {};
@@ -718,68 +724,258 @@ else
     Movie = struct('cdata', [], 'colormap', []);
     Movie(mframes) = struct('cdata', [], 'colormap', []);
     
-    % Setup layout based on single vs dual
-    if strcmpi(opt.layout, 'dual')
-        % DUAL LAYOUT WITH TIMECOURSE
-        % Top half: two topoplots side by side
-        % Bottom half: full-width timecourse
-        
-        % Setup timecourse plot in bottom half
-        axeegplot = axes('Units','Normalized','Position',[0.05 0.05 0.9 0.40], ...
-                         'Color', 'white');
-    else
-        % SINGLE LAYOUT WITH TIMECOURSE (original)
-        axeegplot = axes('Units','Normalized','Position',[.75 .05 .2 .9], ...
-                         'Color', 'white');
-    end
-    
-    % Create temporary file for channel labels
-    if isstruct(eloc_locs)
-        fid = fopen('tmp_file.loc', 'w');
-        
-        num_channels = length(eloc_locs);
-        channel_step = ceil(num_channels / 12);
-        
-        for iChan = 1:num_channels
-            if mod(iChan-1, channel_step) == 0
-                fprintf(fid, '0 0 0 %s\n', eloc_locs(iChan).labels);
-            else
-                fprintf(fid, '0 0 0  \n');
+    % Determine which channels to display in timecourse
+    if ~isempty(opt.timecourse_channels)
+        % Use specified channels
+        selected_channels = opt.timecourse_channels;
+        % Validate indices
+        if any(selected_channels < 1) || any(selected_channels > chans)
+            error('timecourse_channels contains invalid channel indices');
+        end
+    elseif ~isempty(opt.timecourse_maxchans)
+        % Auto-select evenly spaced channels
+        if opt.timecourse_maxchans >= chans
+            selected_channels = 1:chans;
+        else
+            % Evenly space the channels
+            step = floor(chans / opt.timecourse_maxchans);
+            selected_channels = 1:step:chans;
+            % Ensure we have exactly the requested number
+            if length(selected_channels) > opt.timecourse_maxchans
+                selected_channels = selected_channels(1:opt.timecourse_maxchans);
             end
         end
-        fclose(fid);
-        
-        % Plot timecourse (using first dataset)
-        eegplotold('noui', -data, srate, 0, 'tmp_file.loc', opt.startsec, 'r');
     else
-        eegplotold('noui', -data, srate, 0, eloc_locs, opt.startsec, 'r');
+        % Use all channels (default)
+        selected_channels = 1:chans;
     end
     
-    % Get limits and customize appearance
-    limits = get(axeegplot,'Ylim');
-    set(axeegplot,'GridLineStyle','none','Xgrid','off','Ygrid','on');
-    set(axeegplot,'Color','white');
-    set(axeegplot,'XColor','black','YColor','black');
+    num_selected = length(selected_channels);
+    selected_data = data(selected_channels, :);
+    if isstruct(eloc_locs)
+        selected_labels = eloc_locs(selected_channels);
+    else
+        selected_labels = [];
+    end
     
-    % Ensure tick labels are visible
-    set(axeegplot, 'TickLabelInterpreter', 'none');
-    set(axeegplot, 'XTickLabelRotation', 0);
-    
-    % Adjust font size based on layout
+    % Determine layout based on number of channels and topoplot layout
     if strcmpi(opt.layout, 'dual')
-        set(axeegplot, 'FontSize', 12);  % Larger for full-width
+        % DUAL LAYOUT WITH TIMECOURSE
+        % Adjust positions for dual layout (bottom half)
+        base_y = 0.05;
+        base_height = 0.40;
     else
-        set(axeegplot, 'FontSize', 10);
+        % SINGLE LAYOUT WITH TIMECOURSE
+        % Positions for single layout (right side)
+        base_y = 0.05;
+        base_height = 0.9;
     end
-    set(axeegplot, 'FontName', 'Helvetica');
     
-    % Set manual mode
-    set(axeegplot, 'XTickMode', 'manual');
-    set(axeegplot, 'XTickLabelMode', 'manual');
+    % Create axes based on number of selected channels
+    timecourse_axes = [];
+    axes_positions = {};
     
-    % Store initial axis limits
-    initial_xlim = get(axeegplot, 'XLim');
-    initial_ylim = get(axeegplot, 'YLim');
+    switch num_selected
+        case 1
+            % Single channel layout - full width
+            if strcmpi(opt.layout, 'dual')
+                axes_positions = {[0.05, base_y, 0.9, base_height]};
+            else
+                axes_positions = {[0.75, base_y, 0.2, base_height]};
+            end
+            
+        case 2
+            % Side-by-side layout
+            if strcmpi(opt.layout, 'dual')
+                axes_positions = {[0.05, base_y, 0.43, base_height], ...
+                                 [0.52, base_y, 0.43, base_height]};
+            else
+                % For single layout, stack them vertically
+                half_height = base_height * 0.48;
+                gap = base_height * 0.04;
+                axes_positions = {[0.75, base_y + half_height + gap, 0.2, half_height], ...
+                                 [0.75, base_y, 0.2, half_height]};
+            end
+            
+        case 3
+            % 2 top, 1 bottom centered
+            if strcmpi(opt.layout, 'dual')
+                half_height = base_height * 0.48;
+                gap = base_height * 0.04;
+                axes_positions = {[0.05, base_y + half_height + gap, 0.43, half_height], ...
+                                 [0.52, base_y + half_height + gap, 0.43, half_height], ...
+                                 [0.26, base_y, 0.43, half_height]};
+            else
+                % For single layout, stack them vertically
+                third_height = base_height * 0.31;
+                gap = base_height * 0.035;
+                axes_positions = {[0.75, base_y + 2*(third_height + gap), 0.2, third_height], ...
+                                 [0.75, base_y + third_height + gap, 0.2, third_height], ...
+                                 [0.75, base_y, 0.2, third_height]};
+            end
+            
+        case 4
+            % 2x2 grid
+            if strcmpi(opt.layout, 'dual')
+                half_height = base_height * 0.48;
+                gap = base_height * 0.04;
+                axes_positions = {[0.05, base_y + half_height + gap, 0.43, half_height], ...
+                                 [0.52, base_y + half_height + gap, 0.43, half_height], ...
+                                 [0.05, base_y, 0.43, half_height], ...
+                                 [0.52, base_y, 0.43, half_height]};
+            else
+                % For single layout, stack them vertically
+                quarter_height = base_height * 0.23;
+                gap = base_height * 0.027;
+                axes_positions = {[0.75, base_y + 3*(quarter_height + gap), 0.2, quarter_height], ...
+                                 [0.75, base_y + 2*(quarter_height + gap), 0.2, quarter_height], ...
+                                 [0.75, base_y + quarter_height + gap, 0.2, quarter_height], ...
+                                 [0.75, base_y, 0.2, quarter_height]};
+            end
+            
+        otherwise
+            % Traditional stacked layout for 5+ channels
+            if strcmpi(opt.layout, 'dual')
+                axes_positions = {[0.05, base_y, 0.9, base_height]};
+            else
+                axes_positions = {[0.75, base_y, 0.2, base_height]};
+            end
+    end
+    
+    % Create the axes
+    for i = 1:length(axes_positions)
+        timecourse_axes(i) = axes('Units','Normalized','Position',axes_positions{i}, ...
+                                 'Color', 'white');
+    end
+    
+    % Plot data based on number of channels
+    initial_xlims = {};
+    initial_ylims = {};
+    all_limits = [];
+    
+    if num_selected <= 4
+        % Individual plots for each channel (1-4 channels)
+        for i = 1:num_selected
+            axes(timecourse_axes(i));
+            
+            % Plot single channel
+            channel_data = selected_data(i, :);
+            time_vector = (0:length(channel_data)-1) / srate + opt.startsec;
+            plot(time_vector, -channel_data, 'k', 'LineWidth', 1);
+            
+            % Store limits for this axis
+            xlim([time_vector(1) time_vector(end)]);
+            if strcmpi(opt.timecourse_scaling, 'linked')
+                % Calculate common y-limits later
+                all_limits = [all_limits; min(-channel_data) max(-channel_data)];
+            else
+                % Independent scaling
+                ylim([min(-channel_data) max(-channel_data)]);
+            end
+            
+            initial_xlims{i} = get(gca, 'XLim');
+            initial_ylims{i} = get(gca, 'YLim');
+            
+            % Customize appearance
+            set(gca, 'GridLineStyle', 'none', 'Xgrid', 'off', 'Ygrid', 'on');
+            set(gca, 'Color', 'white');
+            set(gca, 'XColor', 'black', 'YColor', 'black');
+            set(gca, 'TickLabelInterpreter', 'none');
+            set(gca, 'XTickLabelRotation', 0);
+            
+            % Add channel label
+            if isstruct(selected_labels)
+                channel_label = selected_labels(i).labels;
+            else
+                channel_label = sprintf('Ch %d', selected_channels(i));
+            end
+            
+            % Position label based on number of channels
+            switch num_selected
+                case 1
+                    ylabel(channel_label, 'FontWeight', 'bold', 'FontSize', 12);
+                    xlabel('Time (s)', 'FontSize', 10);
+                case {2, 3, 4}
+                    title(channel_label, 'FontSize', 10, 'FontWeight', 'bold');
+                    if i == num_selected || (num_selected == 3 && i == 3) || ...
+                       (num_selected == 4 && (i == 3 || i == 4))
+                        xlabel('Time (s)', 'FontSize', 9);
+                    end
+            end
+            
+            % Font size adjustment
+            if strcmpi(opt.layout, 'dual')
+                set(gca, 'FontSize', 10);
+            else
+                set(gca, 'FontSize', 9);
+            end
+        end
+        
+        % Apply linked scaling if requested
+        if strcmpi(opt.timecourse_scaling, 'linked') && num_selected > 1
+            common_ylim = [min(all_limits(:,1)) max(all_limits(:,2))];
+            for i = 1:num_selected
+                axes(timecourse_axes(i));
+                ylim(common_ylim);
+                initial_ylims{i} = common_ylim;
+            end
+        end
+        
+    else
+        % Traditional multi-channel plot (5+ channels)
+        axes(timecourse_axes(1));
+        
+        % Create temporary file for channel labels
+        if isstruct(selected_labels)
+            fid = fopen('tmp_file.loc', 'w');
+            
+            num_channels = length(selected_labels);
+            channel_step = ceil(num_channels / 12);
+            
+            for iChan = 1:num_channels
+                if mod(iChan-1, channel_step) == 0
+                    fprintf(fid, '0 0 0 %s\n', selected_labels(iChan).labels);
+                else
+                    fprintf(fid, '0 0 0  \n');
+                end
+            end
+            fclose(fid);
+            
+            % Plot timecourse
+            eegplotold('noui', -selected_data, srate, 0, 'tmp_file.loc', opt.startsec, 'r');
+        else
+            eegplotold('noui', -selected_data, srate, 0, [], opt.startsec, 'r');
+        end
+        
+        % Get limits and customize appearance
+        limits = get(gca, 'Ylim');
+        set(gca, 'GridLineStyle', 'none', 'Xgrid', 'off', 'Ygrid', 'on');
+        set(gca, 'Color', 'white');
+        set(gca, 'XColor', 'black', 'YColor', 'black');
+        
+        % Ensure tick labels are visible
+        set(gca, 'TickLabelInterpreter', 'none');
+        set(gca, 'XTickLabelRotation', 0);
+        
+        % Adjust font size based on layout
+        if strcmpi(opt.layout, 'dual')
+            set(gca, 'FontSize', 12);
+        else
+            set(gca, 'FontSize', 10);
+        end
+        set(gca, 'FontName', 'Helvetica');
+        
+        % Store initial axis limits
+        initial_xlims{1} = get(gca, 'XLim');
+        initial_ylims{1} = get(gca, 'YLim');
+    end
+    
+    % Set manual mode for all axes
+    for i = 1:length(timecourse_axes)
+        axes(timecourse_axes(i));
+        set(gca, 'XTickMode', 'manual');
+        set(gca, 'XTickLabelMode', 'manual');
+    end
     
     % Add title at the top
     if ~isempty(opt.title)
@@ -850,32 +1046,65 @@ else
     for f = 1:mframes
         indFrame = opt.movieframes(f);
         
-        % Update timecourse marker
-        axes(axeegplot)
-        
-        % Remove old red line
-        oldLine = findobj(axeegplot, 'Type', 'line', 'Color', 'r');
-        if ~isempty(oldLine)
-            delete(oldLine);
-        end
-        
         % Calculate time
         x1 = opt.startsec + (indFrame-1)/srate;
         
-        % Add new red marker
-        hold on;
-        l1 = line([indFrame indFrame], limits, 'color', 'r', 'LineWidth', 2);
-        hold off;
-        
-        % Preserve axis limits
-        set(axeegplot, 'XLim', initial_xlim);
-        set(axeegplot, 'YLim', initial_ylim);
-        
-        % Update X-axis label
-        set(axeegplot, 'XTickMode', 'manual');
-        set(axeegplot, 'XTickLabelMode', 'manual');
-        set(axeegplot, 'XTick', indFrame);
-        set(axeegplot, 'XTickLabel', sprintf('%.3f s', x1));
+        % Update timecourse markers for all axes
+        for ax_idx = 1:length(timecourse_axes)
+            axes(timecourse_axes(ax_idx));
+            
+            % Remove old red line
+            oldLine = findobj(timecourse_axes(ax_idx), 'Type', 'line', 'Color', 'r');
+            if ~isempty(oldLine)
+                delete(oldLine);
+            end
+            
+            % Get y-limits for this axis
+            if num_selected <= 4
+                % For individual channel plots
+                ylims = initial_ylims{ax_idx};
+            else
+                % For multi-channel plot
+                ylims = limits;
+            end
+            
+            % Add new red marker
+            hold on;
+            if num_selected <= 4
+                % For individual channel plots, use time in seconds
+                time_point = x1;
+                line([time_point time_point], ylims, 'color', 'r', 'LineWidth', 2);
+            else
+                % For multi-channel plot, use frame index
+                line([indFrame indFrame], ylims, 'color', 'r', 'LineWidth', 2);
+            end
+            hold off;
+            
+            % Preserve axis limits
+            set(gca, 'XLim', initial_xlims{min(ax_idx, length(initial_xlims))});
+            set(gca, 'YLim', initial_ylims{min(ax_idx, length(initial_ylims))});
+            
+            % Update X-axis label (only for first axis or bottom axes)
+            if (num_selected == 1) || ...
+               (num_selected == 2 && strcmpi(opt.layout, 'dual')) || ...
+               (num_selected == 3 && ax_idx == 3) || ...
+               (num_selected == 4 && (ax_idx == 3 || ax_idx == 4)) || ...
+               (num_selected > 4 && ax_idx == 1)
+                
+                set(gca, 'XTickMode', 'manual');
+                set(gca, 'XTickLabelMode', 'manual');
+                
+                if num_selected <= 4
+                    % For individual plots, show time value
+                    set(gca, 'XTick', time_point);
+                    set(gca, 'XTickLabel', sprintf('%.3f s', x1));
+                else
+                    % For multi-channel plot, use frame index
+                    set(gca, 'XTick', indFrame);
+                    set(gca, 'XTickLabel', sprintf('%.3f s', x1));
+                end
+            end
+        end
         
         % Force update
         drawnow expose;
