@@ -1,4 +1,4 @@
-function [Movie, Colormap] = eegmovie_parallel(data,srate,eloc_locs,varargin)
+function [Movie, Colormap] = eegmovie_parallel_dual(data,srate,eloc_locs,varargin)
 % eegmovie_parallel() - Optimized parallel version of eegmovie with dual topoplot support
 %                       Generates movie frames in parallel for faster processing
 %                       Now supports side-by-side topoplots for comparing two datasets
