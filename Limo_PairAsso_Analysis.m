@@ -17,10 +17,10 @@ settings.matlab.appearance.figure.GraphicsTheme.PersonalValue = "light";
 
 chan_loc = '/Volumes/T7/ERP Files/Epoched Files 50/derivatives/limo_gp_level_chanlocs.mat';
 files = '/Volumes/T7/ERP Files/Epoched Files 50/derivatives/LIMO_list.txt';
-parameters = 2;
+parameters = 4;
 estimator = 'Mean'; % 'Mean' 'Weighted mean' 'Trimmed mean' 'HD' 'Median'
 analysis_type = 'Mean'; % 'Mean' 'Trimmed mean' 'HD' 'Median'
-savename = [ '/Volumes/T7/ERP Files/Epoched Files 50/derivatives/parameter_' num2str(parameters) '.mat'];
+savename = [ '/Volumes/T7/ERP Files/Epoched Files 50/derivatives/new2_parameter_' num2str(parameters) '.mat'];
 limo_central_tendency_and_ci(files, parameters, chan_loc, estimator, analysis_type, [],savename);
 
 %% Plot averages for each condition
@@ -426,8 +426,8 @@ disp(fieldnames(Data));
 
 %% Specify data for plots
 
-load('/Volumes/T7/ERP Files/Epoched Files 50/paired_ttest2/LIMO.mat');
-data = load('/Volumes/T7/ERP Files/Epoched Files 50/paired_ttest2/paired_samples_ttest_parameter_34.mat');
+load('/Volumes/T7/ERP Files/Epoched Files 50/paired_ttest3/LIMO.mat');
+data = load('/Volumes/T7/ERP Files/Epoched Files 50/paired_ttest3/paired_samples_ttest_parameter_34.mat');
 one_sample = data.paired_samples;
 
 plot_data = squeeze(one_sample(:,:,4)); % t-values (4th dimension)
@@ -439,12 +439,12 @@ df_values = squeeze(one_sample(:,:,3)); % df-values (3rd dimension)
 
 % The function has 3 parameters pointing to the test directory, so it's
 % easier to go to that directory first and use pwd
-cd '/Volumes/T7/ERP Files/Epoched Files 50/paired_ttest2'
+cd '/Volumes/T7/ERP Files/Epoched Files 50/paired_ttest3'
 limo_display_results(1, ... # electodes x time graph
-    'paired_samples_ttest_parameter_34.mat', ... # test statistics mat file
+    'paired_samples_ttest_parameter_35.mat', ... # test statistics mat file
     pwd, ... # path to the test directory
     0.05, ... # significance level
-    3, ... # MCC: 1 = none, 2 = cluster, 3 = TFCE, 4 = max
+    2, ... # MCC: 1 = none, 2 = cluster, 3 = TFCE, 4 = max
     fullfile(pwd,'LIMO.mat'), ... # LIMO mat file
     0 ... # interactive figure: 0 = false, 1 = true
     );
@@ -462,7 +462,7 @@ EEG.xmin = LIMO.data.start/1000;  % Convert to seconds
 EEG.xmax = LIMO.data.end/1000;    % Convert to seconds
 EEG.times = linspace(EEG.xmin, EEG.xmax, EEG.pnts);
 
-latencies = 0:100:1500; % time plots to display
+latencies = 0:100:2500; % time plots to display
 
 pop_topoplot(EEG, 1, latencies, 'Paired T-test Topoplots', 0);
 
@@ -477,7 +477,7 @@ cc = limo_color_images(plot_data(~isnan(plot_data)));
 
 % Time setup
 times = linspace(LIMO.data.start, LIMO.data.end, size(plot_data,2));
-latencies = 0:100:1500;
+latencies = 200:200:2500;
 
 % Find time indices for each latency
 time_indices = arrayfun(@(x) find(abs(times - x) == min(abs(times - x)), 1), latencies);
@@ -491,7 +491,7 @@ abs_max = max(abs(plot_data(:)));
 colorbar_limits = [-abs_max, abs_max];
 
 for i = 1:length(latencies)
-    ax = subplot(4, 4, i);
+    ax = subplot(3, 4, i);
     ax_handles(end+1) = ax;
     
     % Get data for this time point
@@ -545,7 +545,7 @@ title(h, 't-values', 'FontSize', 10, 'Color', 'k');
 set(ax_ref, 'XTick', [], 'YTick', [], 'Box', 'off');
 
 % Add main title matching 3D plotting style with more space
-sgtitle([LIMO.cache.fig.title, ' Topoplots'], 'FontSize', 14, 'Color', 'k');
+sgtitle('Paired T-test Between Test Hits & Correct Rejections Topoplots', 'FontSize', 14, 'Color', 'k');
 
 % Adjust subplot positions to move everything down and create title space
 for i = 1:length(ax_handles)
@@ -566,7 +566,7 @@ cc = limo_color_images(plot_data_masked(~isnan(plot_data_masked)));
 
 % Time setup
 times = linspace(LIMO.data.start, LIMO.data.end, size(plot_data,2));
-latencies = 0:100:1500;
+latencies = 0:100:2500;
 
 % Find time indices for each latency
 time_indices = arrayfun(@(x) find(abs(times - x) == min(abs(times - x)), 1), latencies);
@@ -580,7 +580,7 @@ abs_max = max(abs(plot_data(:)));  % Get absolute maximum like 'absmax' does
 colorbar_limits = [-abs_max, abs_max];  % Symmetric limits like topoplot
 
 for i = 1:length(latencies)
-    ax = subplot(4, 4, i);
+    ax = subplot(5, 7, i);
     ax_handles(end+1) = ax;  % Store axis handle
 
     % Get data for this time point
@@ -652,20 +652,24 @@ rotate3d(fig, 'on');
 % Define rectangles for highlighting. Each cell contains a 2x2 matrix for
 % a rectangle, defined by its top-left and bottom-right corners in the
 % format: [time_ms, channel; time_ms, channel].
-highlight_rects = {[400, 21; 800, 21], [400, 87; 800, 87], [400, 101; 800, 101], [400, 153; 800, 153]}; 
+highlight_rects = {}; 
 % Example: [400, 21; 700, 21], [400, 36; 700, 36], [400, 101; 700, 101], [-100, 224; 1500, 224]
 
 % Define labels for the highlighted rectangles. The number of labels should
 % match the number of rectangles.
-highlight_labels = {'E21', 'E87', 'E101', 'E153'};
+highlight_labels = {''};
 % Example: 'Fz (E21)', 'F3 (E36)', 'F4 (E224)', 'Pz (E101)'
 
 % LIMO-style masking
 plot_data_masked = plot_data;
 plot_data_masked(p_values >= 0.05) = NaN;
 
-% LIMO-style colormap
-cc = limo_color_images(plot_data_masked(~isnan(plot_data_masked)));
+% LIMO-style colormap for t-values, ensuring it's symmetric around 0
+abs_max_val = max(abs(plot_data(:)));
+if isempty(abs_max_val) || abs_max_val == 0
+    abs_max_val = 1; % handle case with no significant data
+end
+cc = limo_color_images([-abs_max_val, abs_max_val]);
 
 % Create time-channel plot data
 % Placeholder values from tutorial: [400 8; 350 14; 500 24; 1050 11]
@@ -698,14 +702,15 @@ colormap(fig_exp, cc);
 
 % Create main time-channel plot - adjust position based on whether topoplots are present
 if plot_topoplots
-    imgax_exp = axes('Position', [0.1 0.08 0.75 0.55]); % Lower position with space for topoplots above
+    imgax_exp = axes('Position', [0.08 0.10 0.78 0.55]); % Lower position with space for topoplots above
 else
-    imgax_exp = axes('Position', [0.1 0.15 0.75 0.65]); % Higher position when no topoplots
+    imgax_exp = axes('Position', [0.08 0.12 0.78 0.68]); % Lower the plot to create more space above for title
 end
 set(imgax_exp, 'Color', [0.9 0.9 0.9], 'XColor', 'k', 'YColor', 'k', 'Box', 'on', 'LineWidth', 1); % Set axes background and and outline to black with thicker border
 
-% Plot the masked data
-h_img_exp = imagesc(times, 1:size(plot_data,1), plot_data_masked);
+% Plot the masked t-value data
+%h_img_exp = imagesc(times, 1:size(plot_data,1), plot_data_masked);
+xlim([times(1), times(end)]);
 
 % Set NaN values to be transparent by creating an alpha mask
 alpha_mask_exp = ~isnan(plot_data_masked);
@@ -714,9 +719,8 @@ set(h_img_exp, 'AlphaData', alpha_mask_exp);
 % Set background color to show through transparent areas
 set(imgax_exp, 'Color', [0.9 0.9 0.9]);
 
-% Set color limits
-abs_max = max(abs(plot_data(:)));
-caxis([-abs_max, abs_max]);
+% Set color limits for t-values
+caxis([-abs_max_val, abs_max_val]);
 
 % Add labels
 xlabel('Time (ms)', 'Color', 'k');
@@ -995,10 +999,12 @@ colormap(imgax_exp, cc);
 
 % Add colorbar positioned to the right of the main plot - adjust based on plot position
 if plot_topoplots
-    h = colorbar(imgax_exp, 'Position', [0.87 0.08 0.03 0.55]); % Match lower plot position
+    h = colorbar(imgax_exp, 'Position', [0.88 0.10 0.04 0.55]); % Match lower plot position
 else
-    h = colorbar(imgax_exp, 'Position', [0.87 0.15 0.03 0.65]); % Match higher plot position
+    h = colorbar(imgax_exp, 'Position', [0.88 0.12 0.04 0.68]); % Match adjusted plot position
 end
+
+% Set up colorbar with t-value labels
 title(h, 't-values', 'FontSize', 10, 'Color', 'k');
 set(h, 'Color', 'k', 'Box', 'on', 'LineWidth', 1, 'TickLength', 0); % Set colorbar text and outline to black, remove internal gridlines
 
@@ -1032,26 +1038,61 @@ all_ticks = unique(all_ticks);
 
 set(imgax_exp, 'XTick', all_ticks);
 
-% Add main title using annotation - adjust position based on whether topoplots are present
+% Adjust text sizes for high-resolution export
+set(imgax_exp, 'FontSize', 7); % Axis tick labels
+xlabel(imgax_exp, 'Time (ms)', 'Color', 'k', 'FontSize', 8); % X-axis label
+ylabel(imgax_exp, 'Channel', 'Color', 'k', 'FontSize', 8); % Y-axis label
+
+% Adjust axis label positions
+h_xlabel = get(imgax_exp, 'XLabel');
+h_ylabel = get(imgax_exp, 'YLabel');
+xlabel_pos = get(h_xlabel, 'Position');
+ylabel_pos = get(h_ylabel, 'Position');
+set(h_xlabel, 'Position', [xlabel_pos(1), xlabel_pos(2) + 3, xlabel_pos(3)]); % Move x-label down by 5 units
+set(h_ylabel, 'Position', [ylabel_pos(1) - 25, ylabel_pos(2), ylabel_pos(3)]); % Move y-label left by 15 units
+
+% Colorbar text
+title(h, 't-values', 'FontSize', 8, 'Color', 'k'); % Colorbar title
+set(h, 'FontSize', 7); % Colorbar tick labels
+
+% Adjust highlight labels text size (if any exist)
+if ~isempty(highlight_rects)
+    text_objs = findobj(imgax_exp, 'Type', 'text');
+    for i = 1:length(text_objs)
+        if contains(get(text_objs(i), 'String'), {'E', 'Fz', 'F3', 'F4', 'Pz'}) % Common electrode patterns
+            set(text_objs(i), 'FontSize', 7); % Adjust highlight label font size
+        end
+    end
+end
+
+% Add title using annotation positioned above the plot
 if plot_topoplots
     annotation('textbox', [0, 0.85, 1, 0.15], ...
-               'String', [LIMO.cache.fig.title, ' Time-Channel Plot'], ...
+               'String', 'Paired T-test Between Test Hits & Correct Rejections With TFCE Correction', ...
                'EdgeColor', 'none', ...
                'HorizontalAlignment', 'center', ...
                'VerticalAlignment', 'middle', ...
-               'FontSize', 21, ...
+               'FontSize', 12, ...
                'Color', 'k', ...
                'FitBoxToText', 'on');
 else
-    annotation('textbox', [0, 0.85, 1, 0.08], ...
-               'String', [LIMO.cache.fig.title, ' Time-Channel Plot'], ...
+    annotation('textbox', [0, 0.78, 1, 0.10], ... % Higher position above the plot
+               'String', 'Paired T-test Between Study Hits & Study Misses With TFCE Correction', ...
                'EdgeColor', 'none', ...
                'HorizontalAlignment', 'center', ...
                'VerticalAlignment', 'middle', ...
-               'FontSize', 21, ...
+               'FontSize', 14, ...
                'Color', 'k', ...
                'FitBoxToText', 'on');
 end
+
+% Set figure properties for high-resolution export with scaled text
+set(fig_exp, 'PaperPositionMode', 'auto');
+set(fig_exp, 'PaperUnits', 'inches');
+set(fig_exp, 'InvertHardCopy', 'off');
+
+% Export at high resolution (600 DPI) - text will scale automatically
+print(fig_exp, '/Users/devon7y/Downloads/time_channel_plot_high_res.png', '-dpng', '-r600');
 
 %% New TODO
 % Add a feature in my channel-time graph so that you can define rectangles
