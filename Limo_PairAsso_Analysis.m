@@ -17,15 +17,15 @@ settings.matlab.appearance.figure.GraphicsTheme.PersonalValue = "light";
 
 chan_loc = '/Volumes/T7/ERP Files/Epoched Files 50/derivatives/limo_gp_level_chanlocs.mat';
 files = '/Volumes/T7/ERP Files/Epoched Files 50/derivatives/LIMO_list.txt';
-parameters = 4;
+parameters = 5;
 estimator = 'Mean'; % 'Mean' 'Weighted mean' 'Trimmed mean' 'HD' 'Median'
 analysis_type = 'Mean'; % 'Mean' 'Trimmed mean' 'HD' 'Median'
-savename = [ '/Volumes/T7/ERP Files/Epoched Files 50/derivatives/new2_parameter_' num2str(parameters) '.mat'];
+savename = [ '/Volumes/T7/ERP Files/Epoched Files 50/derivatives/parameter_' num2str(parameters) '.mat'];
 limo_central_tendency_and_ci(files, parameters, chan_loc, estimator, analysis_type, [],savename);
 
 %% Plot averages for each condition
 
-average_files = {'/Volumes/T7/ERP Files/Epoched Files 50/derivatives/parameter_5_Mean_of_Mean.mat'};
+average_files = {'/Volumes/T7/ERP Files/Epoched Files 50/derivatives/parameter_1_Mean_of_Mean.mat', '/Volumes/T7/ERP Files/Epoched Files 50/derivatives/parameter_2_Mean_of_Mean.mat'};
 % average_files = {'/Volumes/T7/ERP Files/Original Epoched Files/derivatives/parameter_5_Mean_of_Mean.mat', '/Volumes/T7/ERP Files/Original Epoched Files/derivatives/parameter_6_Mean_of_Mean.mat'};
 channel = [21];
 
@@ -60,222 +60,6 @@ if isempty(channel)
 end
 
 limo_add_plots(average_files, [], 'channel', channel, 'restrict', 'Time', 'figure', 'new');
-
-% DEBUG: Let's examine what's actually in the parameter files
-fprintf('\n=== DEBUGGING PARAMETER FILES VS RAW DATA ===\n');
-
-% 1. Load parameter file data
-fprintf('\n1. PARAMETER FILE DATA:\n');
-for i = 1:length(average_files)
-    fprintf('\nFile %d: %s\n', i, average_files{i});
-    
-    % Load and examine the parameter file
-    param_data = load(average_files{i});
-    field_names = fieldnames(param_data);
-    fprintf('  Fields: %s\n', strjoin(field_names, ', '));
-    
-    % Get the main data field (usually the largest array)
-    main_field = '';
-    for j = 1:length(field_names)
-        field_value = param_data.(field_names{j});
-        if isnumeric(field_value)
-            fprintf('  %s size: %s\n', field_names{j}, mat2str(size(field_value)));
-            if numel(field_value) > 100  % Likely the main data
-                main_field = field_names{j};
-            end
-        elseif isstruct(field_value)
-            fprintf('  %s: [struct with fields: %s]\n', field_names{j}, strjoin(fieldnames(field_value), ', '));
-            % Check if it's the Data structure
-            if strcmp(field_names{j}, 'Data')
-                data_fields = fieldnames(field_value);
-                for k = 1:length(data_fields)
-                    data_field_value = field_value.(data_fields{k});
-                    if isnumeric(data_field_value)
-                        fprintf('    Data.%s size: %s\n', data_fields{k}, mat2str(size(data_field_value)));
-                        if contains(data_fields{k}, 'mean') || contains(data_fields{k}, 'data')
-                            main_field = sprintf('Data.%s', data_fields{k});
-                        end
-                    end
-                end
-            end
-        end
-    end
-    
-    % Examine the main data for this channel
-    if ~isempty(main_field)
-        if contains(main_field, 'Data.')
-            parts = split(main_field, '.');
-            main_data = param_data.(parts{1}).(parts{2});
-        else
-            main_data = param_data.(main_field);
-        end
-        
-        if ndims(main_data) >= 2
-            if ndims(main_data) == 4 && size(main_data, 4) == 3
-                % Format: [channels x time x conditions x stats]
-                % Take middle statistic (mean) from the 4th dimension
-                channel_data = squeeze(main_data(channel, :, 1, 2));
-                fprintf('  Channel %d data (mean from 4D): range [%.6f, %.6f]\n', channel, min(channel_data), max(channel_data));
-            elseif ndims(main_data) == 3 && size(main_data, 3) == 3
-                % Format: [channels x time x stats] 
-                % Take middle statistic (mean) from the 3rd dimension
-                channel_data = squeeze(main_data(channel, :, 2));
-                fprintf('  Channel %d data (mean from 3D): range [%.6f, %.6f]\n', channel, min(channel_data), max(channel_data));
-            else
-                % Regular 2D format
-                channel_data = squeeze(main_data(channel, :));
-                fprintf('  Channel %d data (2D): range [%.6f, %.6f]\n', channel, min(channel_data), max(channel_data));
-            end
-            fprintf('  Channel %d first 10 points: %s\n', channel, mat2str(channel_data(1:min(10,end))', 6));
-            
-            % Store for comparison
-            if i == 1
-                param_data_for_comparison = channel_data;
-            end
-        end
-    end
-end
-
-% 2. Now compute the same condition using our method for comparison
-fprintf('\n\n2. RAW ERP DATA (our method):\n');
-% Read the subject list with proper handling of spaces in paths  
-% Use the CORRECT file list that matches the parameter file dataset
-fid = fopen('/Volumes/T7/ERP Files/Epoched Files 50/derivatives/LIMO_list_full.txt', 'r');
-if fid == -1
-    fprintf('  Could not open LIMO file list - trying alternative path\n');
-    % If the file list doesn't exist, construct paths manually for a few subjects
-    file_list = {
-        '/Volumes/T7/ERP Files/Epoched Files 50/derivatives/sub-1009/PairAsso_PairAsso_GLM_Channels_Time_WLS/LIMO.mat'
-        '/Volumes/T7/ERP Files/Epoched Files 50/derivatives/sub-1010/PairAsso_PairAsso_GLM_Channels_Time_WLS/LIMO.mat'
-        '/Volumes/T7/ERP Files/Epoched Files 50/derivatives/sub-1012/PairAsso_PairAsso_GLM_Channels_Time_WLS/LIMO.mat'
-        '/Volumes/T7/ERP Files/Epoched Files 50/derivatives/sub-1013/PairAsso_PairAsso_GLM_Channels_Time_WLS/LIMO.mat'
-        '/Volumes/T7/ERP Files/Epoched Files 50/derivatives/sub-1016/PairAsso_PairAsso_GLM_Channels_Time_WLS/LIMO.mat'
-    };
-    fprintf('  Using manually constructed file list with %d subjects\n', length(file_list));
-else
-    file_list = {};
-    line_count = 0;
-    while ~feof(fid)
-        line = fgetl(fid);
-        if ischar(line) && ~isempty(line)
-            line_count = line_count + 1;
-            file_list{line_count} = strtrim(line);  % Remove leading/trailing whitespace
-        end
-    end
-    fclose(fid);
-    fprintf('  Found %d subjects in file list\n', length(file_list));
-end
-
-if length(file_list) > 0
-    fprintf('  First file path: "%s"\n', file_list{1});
-end
-    
-    % Process first 5 subjects to get raw ERP data for parameter 2
-    raw_erp_data = [];
-    valid_subjects = 0;
-    
-    for subj = 1:min(5, length(file_list))
-        fprintf('  Trying subject %d: %s\n', subj, file_list{subj});
-        try
-            % Check if file exists
-            if ~exist(file_list{subj}, 'file')
-                fprintf('    File does not exist\n');
-                continue;
-            end
-            
-            % Load LIMO file
-            [path, ~, ~] = fileparts(file_list{subj});
-            LIMO = load(file_list{subj});
-            LIMO = LIMO.LIMO;
-            
-            % Debug time info for first subject
-            if subj == 1
-                fprintf('    LIMO time info: start=%.1f, end=%.1f, SR=%.1f Hz\n', ...
-                    LIMO.data.start, LIMO.data.end, LIMO.data.sampling_rate);
-                if isfield(LIMO.data, 'timevect')
-                    fprintf('    Time vector length: %d, range: %.1f to %.1f ms\n', ...
-                        length(LIMO.data.timevect), LIMO.data.timevect(1), LIMO.data.timevect(end));
-                else
-                    expected_length = round((LIMO.data.end - LIMO.data.start) * LIMO.data.sampling_rate / 1000) + 1;
-                    fprintf('    Expected time vector length: %d\n', expected_length);
-                end
-            end
-            
-            % Load Yr file
-            yr_path = fullfile(path, 'Yr.mat');
-            if ~exist(yr_path, 'file')
-                fprintf('    Yr.mat does not exist at: %s\n', yr_path);
-                continue;
-            end
-            
-            Yr = load(yr_path);
-            Yr = Yr.(cell2mat(fieldnames(Yr)));
-            
-            % Find trials for parameter 2
-            trial_indices = logical(LIMO.design.X(:, 2) == 1);
-            
-            if sum(trial_indices) > 0
-                % Extract electrode data and average across trials
-                electrode_data = squeeze(Yr(channel, :, trial_indices));
-                if ndims(electrode_data) == 1
-                    subject_mean = electrode_data;
-                else
-                    subject_mean = nanmean(electrode_data, 2);
-                end
-                
-                if valid_subjects == 0
-                    raw_erp_data = zeros(length(subject_mean), min(5, length(file_list)));
-                end
-                
-                valid_subjects = valid_subjects + 1;
-                raw_erp_data(:, valid_subjects) = subject_mean;
-                
-                fprintf('    SUCCESS: %d trials, range [%.6f, %.6f]\n', sum(trial_indices), min(subject_mean), max(subject_mean));
-            else
-                fprintf('    No trials found for parameter 2\n');
-            end
-            
-        catch ME
-            fprintf('    Error: %s\n', ME.message);
-        end
-    end
-    
-    if valid_subjects > 0
-        % Compute grand average
-        raw_grand_avg = mean(raw_erp_data(:, 1:valid_subjects), 2);
-        fprintf('  \nRaw ERP Grand Average (first %d subjects):\n', valid_subjects);
-        fprintf('    Range: [%.6f, %.6f]\n', min(raw_grand_avg), max(raw_grand_avg));
-        fprintf('    First 10 points: %s\n', mat2str(raw_grand_avg(1:min(10,end))', 6));
-        
-        % Compare with parameter file data
-        if exist('param_data_for_comparison', 'var')
-            fprintf('  \n3. COMPARISON:\n');
-            fprintf('    Parameter file length: %d, Raw ERP length: %d\n', length(param_data_for_comparison), length(raw_grand_avg));
-            if length(param_data_for_comparison) == length(raw_grand_avg)
-                %correlation = corr(param_data_for_comparison, raw_grand_avg);
-                difference = mean(abs(param_data_for_comparison - raw_grand_avg));
-                ratio = mean(param_data_for_comparison) / mean(raw_grand_avg);
-                %fprintf('    Correlation: %.6f\n', correlation);
-                fprintf('    Mean absolute difference: %.6f\n', difference);
-                fprintf('    Amplitude ratio (param/raw): %.6f\n', ratio);
-                if ratio < 1
-                    fprintf('    Parameter file amplitude: %.2fx smaller than raw ERP\n', 1/ratio);
-                else
-                    fprintf('    Parameter file amplitude: %.2fx larger than raw ERP\n', ratio);
-                end
-            else
-                fprintf('    CANNOT COMPARE: Different time lengths\n');
-                fprintf('    This suggests parameter file was created from different data:\n');
-                fprintf('      - Different time window (epoch length)\n');
-                fprintf('      - Different sampling rate\n');
-                fprintf('      - Different file list/dataset\n');
-            end
-        end
-    else
-        fprintf('  No valid subjects processed\n');
-    end
-
-
 
 % Extract parameter numbers from filenames for legend and title
 legend_labels = {};
@@ -408,8 +192,8 @@ subtitle(subtitle_str);
 %data1 = '/Volumes/T7/ERP Files/Epoched Files/derivatives/parameter_1_single_subjects_Weighted mean.mat';
 %data2 = '/Volumes/T7/ERP Files/Epoched Files/derivatives/parameter_4_single_subjects_Weighted mean.mat';
 
-data1 = '/Volumes/T7/ERP Files/Epoched Files/derivatives/parameter_1_Mean_of_Mean.mat';
-data2 = '/Volumes/T7/ERP Files/Epoched Files/derivatives/parameter_4_Mean_of_Mean.mat';
+data1 = '/Volumes/T7/ERP Files/Epoched Files 50/derivatives/parameter_1_Mean_of_Mean.mat';
+data2 = '/Volumes/T7/ERP Files/Epoched Files 50/derivatives/parameter_2_Mean_of_Mean.mat';
 type = 'independent';
 percent = 'mean';
 alpha = 5;
@@ -426,8 +210,8 @@ disp(fieldnames(Data));
 
 %% Specify data for plots
 
-load('/Volumes/T7/ERP Files/Epoched Files 50/paired_ttest3/LIMO.mat');
-data = load('/Volumes/T7/ERP Files/Epoched Files 50/paired_ttest3/paired_samples_ttest_parameter_34.mat');
+load('/Volumes/T7/ERP Files/Epoched Files 50/paired_ttest2/LIMO.mat');
+data = load('/Volumes/T7/ERP Files/Epoched Files 50/paired_ttest2/paired_samples_ttest_parameter_34.mat');
 one_sample = data.paired_samples;
 
 plot_data = squeeze(one_sample(:,:,4)); % t-values (4th dimension)
@@ -439,12 +223,12 @@ df_values = squeeze(one_sample(:,:,3)); % df-values (3rd dimension)
 
 % The function has 3 parameters pointing to the test directory, so it's
 % easier to go to that directory first and use pwd
-cd '/Volumes/T7/ERP Files/Epoched Files 50/paired_ttest3'
+cd '/Volumes/T7/ERP Files/Epoched Files 50/paired_ttest'
 limo_display_results(1, ... # electodes x time graph
-    'paired_samples_ttest_parameter_35.mat', ... # test statistics mat file
+    'paired_samples_ttest_parameter_12.mat', ... # test statistics mat file
     pwd, ... # path to the test directory
     0.05, ... # significance level
-    2, ... # MCC: 1 = none, 2 = cluster, 3 = TFCE, 4 = max
+    3, ... # MCC: 1 = none, 2 = cluster, 3 = TFCE, 4 = max
     fullfile(pwd,'LIMO.mat'), ... # LIMO mat file
     0 ... # interactive figure: 0 = false, 1 = true
     );
@@ -660,12 +444,16 @@ highlight_rects = {};
 highlight_labels = {''};
 % Example: 'Fz (E21)', 'F3 (E36)', 'F4 (E224)', 'Pz (E101)'
 
-% LIMO-style masking
-plot_data_masked = plot_data;
-plot_data_masked(p_values >= 0.05) = NaN;
+% Create signed -log10(p-values) data
+% Compute -log10(p-values) and inherit sign from t-values
+signed_logp_data = -log10(p_values) .* sign(plot_data);
 
-% LIMO-style colormap for t-values, ensuring it's symmetric around 0
-abs_max_val = max(abs(plot_data(:)));
+% LIMO-style masking for non-significant values
+signed_logp_data_masked = signed_logp_data;
+signed_logp_data_masked(p_values >= 0.05) = NaN;
+
+% LIMO-style colormap for signed -log10(p-values), ensuring it's symmetric around 0
+abs_max_val = max(abs(signed_logp_data(:)));
 if isempty(abs_max_val) || abs_max_val == 0
     abs_max_val = 1; % handle case with no significant data
 end
@@ -708,18 +496,18 @@ else
 end
 set(imgax_exp, 'Color', [0.9 0.9 0.9], 'XColor', 'k', 'YColor', 'k', 'Box', 'on', 'LineWidth', 1); % Set axes background and and outline to black with thicker border
 
-% Plot the masked t-value data
-%h_img_exp = imagesc(times, 1:size(plot_data,1), plot_data_masked);
+% Plot the masked signed -log10(p-value) data
+h_img_exp = imagesc(times, 1:size(signed_logp_data,1), signed_logp_data_masked);
 xlim([times(1), times(end)]);
 
 % Set NaN values to be transparent by creating an alpha mask
-alpha_mask_exp = ~isnan(plot_data_masked);
+alpha_mask_exp = ~isnan(signed_logp_data_masked);
 set(h_img_exp, 'AlphaData', alpha_mask_exp);
 
 % Set background color to show through transparent areas
 set(imgax_exp, 'Color', [0.9 0.9 0.9]);
 
-% Set color limits for t-values
+% Set color limits for signed -log10(p-values)
 caxis([-abs_max_val, abs_max_val]);
 
 % Add labels
@@ -728,7 +516,7 @@ ylabel('Channel', 'Color', 'k');
 
 % Flip y-axis so channel 1 is at the top
 set(imgax_exp, 'YDir', 'reverse');
-ylim([1 size(plot_data,1)]);
+ylim([1 size(signed_logp_data,1)]);
 grid(imgax_exp, 'off'); % Turn off all grid lines for the specific axes
 
 % Set tick label colors to black
@@ -917,12 +705,13 @@ if plot_topoplots
         [~, time_idx] = min(abs(times - time_point));
         
         % Get data for this time point (all channels)
-        topo_data = plot_data(:, time_idx);
+        topo_data = signed_logp_data(:, time_idx);
         
         % Get t, p, and df for title
         t_value = plot_data(channel_point, time_idx);
         p_value = p_values(channel_point, time_idx);
         df = df_values(channel_point, time_idx);
+        signed_logp_value = signed_logp_data(channel_point, time_idx);
 
         % Create topoplot and then modify white background patches to be transparent
         topoplot(topo_data, LIMO.data.chanlocs, ... % DO NOT APPLY THE MASK TO TOPOPLOTS
@@ -968,7 +757,8 @@ if plot_topoplots
             p_string = sprintf('p = %.3f', p_value);
         end
         title_line2 = sprintf('t(%d) = %.3f, %s', df, t_value, p_string);
-        title({title_line1, title_line2}, 'FontSize', 10, 'Color', 'k'); % 8 * 1.2 = 9.6, rounded to 10
+        title_line3 = sprintf('-log10(p) = %.3f', signed_logp_value);
+        title({title_line1, title_line2, title_line3}, 'FontSize', 9, 'Color', 'k');
         
         % Make topoplots circular
         axis tight;
@@ -1004,15 +794,15 @@ else
     h = colorbar(imgax_exp, 'Position', [0.88 0.12 0.04 0.68]); % Match adjusted plot position
 end
 
-% Set up colorbar with t-value labels
-title(h, 't-values', 'FontSize', 10, 'Color', 'k');
+% Set up colorbar with signed -log10(p-value) labels
+title(h, 'signed -log10(p)', 'FontSize', 10, 'Color', 'k');
 set(h, 'Color', 'k', 'Box', 'on', 'LineWidth', 1, 'TickLength', 0); % Set colorbar text and outline to black, remove internal gridlines
 
 % Final formatting: ensure all axes elements are black
 set(imgax_exp, 'XColor', 'k', 'YColor', 'k', 'Box', 'on', 'LineWidth', 1, 'TickLength', [0 0]);
 % Set custom y-axis ticks. If custom labels are used, only show the
 % first and last channel numbers. Otherwise, show 10 equally spaced values.
-num_channels = size(plot_data, 1);
+num_channels = size(signed_logp_data, 1);
 has_custom_labels = ~isempty(highlight_labels) && any(cellfun(@(x) ~isempty(x), highlight_labels));
 
 if has_custom_labels
@@ -1052,7 +842,7 @@ set(h_xlabel, 'Position', [xlabel_pos(1), xlabel_pos(2) + 3, xlabel_pos(3)]); % 
 set(h_ylabel, 'Position', [ylabel_pos(1) - 25, ylabel_pos(2), ylabel_pos(3)]); % Move y-label left by 15 units
 
 % Colorbar text
-title(h, 't-values', 'FontSize', 8, 'Color', 'k'); % Colorbar title
+title(h, 'signed -log10(p)', 'FontSize', 8, 'Color', 'k'); % Colorbar title
 set(h, 'FontSize', 7); % Colorbar tick labels
 
 % Adjust highlight labels text size (if any exist)
@@ -1066,24 +856,36 @@ if ~isempty(highlight_rects)
 end
 
 % Add title using annotation positioned above the plot
+% Determine correction method suffix based on LIMO.cache.fig.MCC
+if LIMO.cache.fig.MCC == 1
+    correction_suffix = ' Uncorrected';
+elseif LIMO.cache.fig.MCC == 2
+    correction_suffix = ' With Cluster Correction';
+elseif LIMO.cache.fig.MCC == 3
+    correction_suffix = ' With TFCE Correction';
+else
+    correction_suffix = ''; % Default case
+end
+
+% Create dynamic title as single string
+dynamic_title = strcat(LIMO.cache.fig.title, correction_suffix);
+
 if plot_topoplots
     annotation('textbox', [0, 0.85, 1, 0.15], ...
-               'String', 'Paired T-test Between Test Hits & Correct Rejections With TFCE Correction', ...
+               'String', dynamic_title, ...
                'EdgeColor', 'none', ...
                'HorizontalAlignment', 'center', ...
                'VerticalAlignment', 'middle', ...
                'FontSize', 12, ...
-               'Color', 'k', ...
-               'FitBoxToText', 'on');
+               'Color', 'k');
 else
     annotation('textbox', [0, 0.78, 1, 0.10], ... % Higher position above the plot
-               'String', 'Paired T-test Between Study Hits & Study Misses With TFCE Correction', ...
+               'String', dynamic_title, ...
                'EdgeColor', 'none', ...
                'HorizontalAlignment', 'center', ...
                'VerticalAlignment', 'middle', ...
                'FontSize', 14, ...
-               'Color', 'k', ...
-               'FitBoxToText', 'on');
+               'Color', 'k');
 end
 
 % Set figure properties for high-resolution export with scaled text
