@@ -25,9 +25,9 @@ limo_central_tendency_and_ci(files, parameters, chan_loc, estimator, analysis_ty
 
 %% Plot averages for each condition
 
-average_files = {'/Volumes/T7/ERP Files/Epoched Files 50/derivatives/parameter_1_Mean_of_Mean.mat', '/Volumes/T7/ERP Files/Epoched Files 50/derivatives/parameter_2_Mean_of_Mean.mat'};
+average_files = {'/Volumes/T7/ERP Files/Epoched Files 50/derivatives/parameter_3_Mean_of_Mean.mat', '/Volumes/T7/ERP Files/Epoched Files 50/derivatives/parameter_4_Mean_of_Mean.mat'};
 % average_files = {'/Volumes/T7/ERP Files/Original Epoched Files/derivatives/parameter_5_Mean_of_Mean.mat', '/Volumes/T7/ERP Files/Original Epoched Files/derivatives/parameter_6_Mean_of_Mean.mat'};
-channel = [21];
+channel = [155];
 
 % Check if average_files is empty and open file picker if needed
 if isempty(average_files)
@@ -92,40 +92,63 @@ subtitle_str = sprintf('(Within-subjects %s, Between-subjects %s, 95%% high dens
 title(title_str);
 subtitle(subtitle_str);
 
-% IMPROVED: More robust line handling approach
-% Instead of trying to detect which lines are "main" lines, 
-% we'll work with what limo_add_plots actually creates
+% IMPROVED: Proper color coordination between ERP lines and confidence intervals
+% Strategy: Identify main ERP lines by their LineWidth and coordinate colors
 if length(average_files) > 1
-    % Get all line objects
+    % Get all line objects and patch objects (confidence intervals)
     h_lines = findobj(gca, 'Type', 'line');
-    
-    if length(h_lines) >= length(average_files)
-        % Get default color order
-        colorOrder = get(gca, 'ColorOrder');
-        
-        % Debug output
-        fprintf('Found %d line objects for %d conditions\n', length(h_lines), length(average_files));
-        
-        % Strategy: Modify the most recently plotted lines (typically the main ERP lines)
-        % limo_add_plots usually plots main lines last, so they appear first in findobj
-        legend_handles = [];
-        
-        for i = 1:min(length(average_files), length(h_lines))
-            line_handle = h_lines(i);
-            color_idx = mod(i-1, size(colorOrder, 1)) + 1;
-            
-            % Set distinctive colors and line width for each condition
-            set(line_handle, 'Color', colorOrder(color_idx,:), 'LineWidth', 3);
-            legend_handles(end+1) = line_handle;
+    h_patches = findobj(gca, 'Type', 'patch');
+
+    fprintf('Found %d line objects and %d patch objects for %d conditions\n', ...
+            length(h_lines), length(h_patches), length(average_files));
+
+    % Get default color order
+    colorOrder = get(gca, 'ColorOrder');
+
+    % Identify main ERP lines (typically have thicker LineWidth)
+    main_lines = [];
+    for i = 1:length(h_lines)
+        linewidth = get(h_lines(i), 'LineWidth');
+        if linewidth > 1 % Main ERP lines are usually thicker
+            main_lines(end+1) = h_lines(i);
         end
-        
-        % Create legend if we have handles
-        if ~isempty(legend_handles)
-            % Reverse the order to match the typical plotting order
-            legend(fliplr(legend_handles), fliplr(legend_labels), 'Location', 'best');
-        end
-    else
-        warning('Fewer line objects (%d) than expected conditions (%d)', length(h_lines), length(average_files));
+    end
+
+    % If we don't find thick lines, use the first N lines (most recent)
+    if length(main_lines) < length(average_files)
+        main_lines = h_lines(1:min(length(average_files), length(h_lines)));
+    end
+
+    % Apply consistent colors to patches first, then lines (for proper layering)
+    legend_handles = [];
+
+    % First, set colors for all confidence interval patches (background layer)
+    for i = 1:min(length(average_files), length(h_patches))
+        color_idx = mod(i-1, size(colorOrder, 1)) + 1;
+        condition_color = colorOrder(color_idx,:);
+
+        % Set matching color for confidence interval patch
+        set(h_patches(i), 'FaceColor', condition_color, 'FaceAlpha', 0.3, ...
+            'EdgeColor', condition_color, 'EdgeAlpha', 0.5);
+    end
+
+    % Then, set colors for main ERP lines and ensure they're on top
+    for i = 1:min(length(average_files), length(main_lines))
+        color_idx = mod(i-1, size(colorOrder, 1)) + 1;
+        condition_color = colorOrder(color_idx,:);
+
+        % Set color for main ERP line
+        set(main_lines(i), 'Color', condition_color, 'LineWidth', 3);
+        legend_handles(end+1) = main_lines(i);
+
+        % Bring line to front by moving it to the end of the children list
+        uistack(main_lines(i), 'top');
+    end
+
+    % Create legend if we have handles
+    if ~isempty(legend_handles)
+        % Reverse the order to match the typical plotting order
+        legend(fliplr(legend_handles), fliplr(legend_labels), 'Location', 'best');
     end
 else
     % Single condition - just update the title, no need for complex legend
@@ -133,7 +156,7 @@ else
 end
 
 %% Plot single-subject data for each condition
-single_subject_files = ['/Volumes/T7/ERP Files/Epoched Files 50/derivatives/parameter_2_single_subjects_Mean.mat'];
+single_subject_files = ['/Volumes/T7/ERP Files/Epoched Files 50/derivatives/parameter_1_single_subjects_Mean.mat'];
 channel = [21];
 
 % Check if single_subject_files is empty and open file picker if needed
@@ -192,8 +215,8 @@ subtitle(subtitle_str);
 %data1 = '/Volumes/T7/ERP Files/Epoched Files/derivatives/parameter_1_single_subjects_Weighted mean.mat';
 %data2 = '/Volumes/T7/ERP Files/Epoched Files/derivatives/parameter_4_single_subjects_Weighted mean.mat';
 
-data1 = '/Volumes/T7/ERP Files/Epoched Files 50/derivatives/parameter_1_Mean_of_Mean.mat';
-data2 = '/Volumes/T7/ERP Files/Epoched Files 50/derivatives/parameter_2_Mean_of_Mean.mat';
+data1 = '/Volumes/T7/ERP Files/Epoched Files 50/derivatives/parameter_3_single_subjects_Mean.mat';
+data2 = '/Volumes/T7/ERP Files/Epoched Files 50/derivatives/parameter_5_single_subjects_Mean.mat';
 type = 'independent';
 percent = 'mean';
 alpha = 5;
@@ -210,8 +233,8 @@ disp(fieldnames(Data));
 
 %% Specify data for plots
 
-load('/Volumes/T7/ERP Files/Epoched Files 50/paired_ttest2/LIMO.mat');
-data = load('/Volumes/T7/ERP Files/Epoched Files 50/paired_ttest2/paired_samples_ttest_parameter_34.mat');
+load('/Volumes/T7/ERP Files/Epoched Files 50/paired_ttest3/LIMO.mat');
+data = load('/Volumes/T7/ERP Files/Epoched Files 50/paired_ttest3/paired_samples_ttest_parameter_35.mat');
 one_sample = data.paired_samples;
 
 plot_data = squeeze(one_sample(:,:,4)); % t-values (4th dimension)
@@ -223,9 +246,9 @@ df_values = squeeze(one_sample(:,:,3)); % df-values (3rd dimension)
 
 % The function has 3 parameters pointing to the test directory, so it's
 % easier to go to that directory first and use pwd
-cd '/Volumes/T7/ERP Files/Epoched Files 50/paired_ttest'
+cd '/Volumes/T7/ERP Files/Epoched Files 50/paired_ttest3'
 limo_display_results(1, ... # electodes x time graph
-    'paired_samples_ttest_parameter_12.mat', ... # test statistics mat file
+    'paired_samples_ttest_parameter_35.mat', ... # test statistics mat file
     pwd, ... # path to the test directory
     0.05, ... # significance level
     3, ... # MCC: 1 = none, 2 = cluster, 3 = TFCE, 4 = max
@@ -436,21 +459,28 @@ rotate3d(fig, 'on');
 % Define rectangles for highlighting. Each cell contains a 2x2 matrix for
 % a rectangle, defined by its top-left and bottom-right corners in the
 % format: [time_ms, channel; time_ms, channel].
-highlight_rects = {}; 
+highlight_rects = {[400, 21; 800, 21], [400, 36; 800, 36], [400, 101; 800, 101], [400, 153; 800, 153]};
 % Example: [400, 21; 700, 21], [400, 36; 700, 36], [400, 101; 700, 101], [-100, 224; 1500, 224]
 
 % Define labels for the highlighted rectangles. The number of labels should
 % match the number of rectangles.
-highlight_labels = {''};
+highlight_labels = {'E21', 'E36', 'E101', 'E153'};
+
+% Significance threshold (p-value)
+alpha_threshold = 0.05;
+
+% Alpha value for non-significant pixels (0 = invisible, 0.3 = 30% opacity, etc.)
+alpha_nonsig = 0.4;
 % Example: 'Fz (E21)', 'F3 (E36)', 'F4 (E224)', 'Pz (E101)'
 
 % Create signed -log10(p-values) data
 % Compute -log10(p-values) and inherit sign from t-values
 signed_logp_data = -log10(p_values) .* sign(plot_data);
 
-% LIMO-style masking for non-significant values
-signed_logp_data_masked = signed_logp_data;
-signed_logp_data_masked(p_values >= 0.05) = NaN;
+% Create alpha mask for significance-based transparency
+% Significant pixels get full opacity (1), non-significant get reduced opacity
+alpha_mask_significance = ones(size(p_values));
+alpha_mask_significance(p_values >= alpha_threshold) = alpha_nonsig;
 
 % LIMO-style colormap for signed -log10(p-values), ensuring it's symmetric around 0
 abs_max_val = max(abs(signed_logp_data(:)));
@@ -496,13 +526,12 @@ else
 end
 set(imgax_exp, 'Color', [0.9 0.9 0.9], 'XColor', 'k', 'YColor', 'k', 'Box', 'on', 'LineWidth', 1); % Set axes background and and outline to black with thicker border
 
-% Plot the masked signed -log10(p-value) data
-h_img_exp = imagesc(times, 1:size(signed_logp_data,1), signed_logp_data_masked);
+% Plot the signed -log10(p-value) data with alpha masking
+h_img_exp = imagesc(times, 1:size(signed_logp_data,1), signed_logp_data);
 xlim([times(1), times(end)]);
 
-% Set NaN values to be transparent by creating an alpha mask
-alpha_mask_exp = ~isnan(signed_logp_data_masked);
-set(h_img_exp, 'AlphaData', alpha_mask_exp);
+% Apply significance-based alpha masking
+set(h_img_exp, 'AlphaData', alpha_mask_significance);
 
 % Set background color to show through transparent areas
 set(imgax_exp, 'Color', [0.9 0.9 0.9]);
@@ -631,6 +660,9 @@ if plot_topoplots
     end
 end
 
+% Update variable name reference for consistency
+signed_logp_data_for_limits = signed_logp_data;
+
 % Set focus to the main plot
 axes(imgax_exp);
 
@@ -704,7 +736,7 @@ if plot_topoplots
         % Get the time point and find closest time index
         [~, time_idx] = min(abs(times - time_point));
         
-        % Get data for this time point (all channels)
+        % Get data for this time point (all channels) - use full data, not masked
         topo_data = signed_logp_data(:, time_idx);
         
         % Get t, p, and df for title
@@ -798,11 +830,32 @@ end
 title(h, 'signed -log10(p)', 'FontSize', 10, 'Color', 'k');
 set(h, 'Color', 'k', 'Box', 'on', 'LineWidth', 1, 'TickLength', 0); % Set colorbar text and outline to black, remove internal gridlines
 
+% Add significance threshold lines to colorbar
+sig_threshold = -log10(alpha_threshold); % Threshold on -log10 scale
+% Get colorbar position and limits
+cbar_pos = get(h, 'Position'); % [x, y, width, height] in figure normalized coordinates
+cbar_limits = get(h, 'Limits'); % [min, max] data values
+% Calculate normalized position of threshold lines within colorbar
+% For positive threshold
+if sig_threshold >= cbar_limits(1) && sig_threshold <= cbar_limits(2)
+    norm_pos_pos = (sig_threshold - cbar_limits(1)) / (cbar_limits(2) - cbar_limits(1));
+    y_pos = cbar_pos(2) + norm_pos_pos * cbar_pos(4);
+    annotation('line', [cbar_pos(1), cbar_pos(1) + cbar_pos(3)], [y_pos, y_pos], ...
+        'LineStyle', '--', 'Color', 'k', 'LineWidth', 1.5);
+end
+% For negative threshold
+if -sig_threshold >= cbar_limits(1) && -sig_threshold <= cbar_limits(2)
+    norm_pos_neg = (-sig_threshold - cbar_limits(1)) / (cbar_limits(2) - cbar_limits(1));
+    y_neg = cbar_pos(2) + norm_pos_neg * cbar_pos(4);
+    annotation('line', [cbar_pos(1), cbar_pos(1) + cbar_pos(3)], [y_neg, y_neg], ...
+        'LineStyle', '--', 'Color', 'k', 'LineWidth', 1.5);
+end
+
 % Final formatting: ensure all axes elements are black
 set(imgax_exp, 'XColor', 'k', 'YColor', 'k', 'Box', 'on', 'LineWidth', 1, 'TickLength', [0 0]);
 % Set custom y-axis ticks. If custom labels are used, only show the
 % first and last channel numbers. Otherwise, show 10 equally spaced values.
-num_channels = size(signed_logp_data, 1);
+num_channels = size(signed_logp_data_for_limits, 1);
 has_custom_labels = ~isempty(highlight_labels) && any(cellfun(@(x) ~isempty(x), highlight_labels));
 
 if has_custom_labels
@@ -928,14 +981,17 @@ highlight_rects = {[400, 21; 700, 21], [400, 36; 700, 36], [400, 101; 700, 101],
 % Define labels for the highlighted rectangles. The number of labels should
 % match the number of rectangles.
 highlight_labels = {'Fz (E21)', 'F3 (E36)', 'F4 (E224)', 'Pz (E101)'};
-% 
 
-% LIMO-style masking
-plot_data_masked = plot_data;
-plot_data_masked(p_values >= 0.05) = NaN;
+% Alpha value for non-significant pixels (0 = invisible, 0.3 = 30% opacity, etc.)
+% Note: Using same parameter as main section for consistency
+% alpha_nonsig = 0.3; % Uncomment if running experimental section independently
 
-% LIMO-style colormap
-cc = limo_color_images(plot_data_masked(~isnan(plot_data_masked)));
+% Create alpha mask for experimental section (same approach as main section)
+alpha_mask_significance_exp = ones(size(p_values));
+alpha_mask_significance_exp(p_values >= 0.05) = alpha_nonsig;
+
+% LIMO-style colormap (use full data range, not masked)
+cc = limo_color_images(plot_data(~isnan(plot_data)));
 
 % Create time-channel plot data
 % Placeholder values from tutorial: [400 8; 350 14; 500 24; 1050 11]
@@ -970,12 +1026,11 @@ colormap(fig_exp_experimental, cc);
 imgax_exp_experimental = axes('Position', [0.1 0.08 0.75 0.55]); % Adjusted height to give title space
 set(imgax_exp_experimental, 'Color', [0.9 0.9 0.9], 'XColor', 'k', 'YColor', 'k', 'Box', 'on', 'LineWidth', 1); % Set axes background and and outline to black with thicker border
 
-% Plot the masked data
-h_img_exp_experimental = imagesc(times, 1:size(plot_data,1), plot_data_masked);
+% Plot the data with significance-based alpha masking
+h_img_exp_experimental = imagesc(times, 1:size(plot_data,1), plot_data);
 
-% Set NaN values to be transparent by creating an alpha mask
-alpha_mask_exp = ~isnan(plot_data_masked);
-set(h_img_exp_experimental, 'AlphaData', alpha_mask_exp);
+% Apply significance-based alpha masking (same as main section)
+set(h_img_exp_experimental, 'AlphaData', alpha_mask_significance_exp);
 
 % Set background color to show through transparent areas
 set(imgax_exp_experimental, 'Color', [0.9 0.9 0.9]);
@@ -1182,7 +1237,7 @@ if plot_topoplots_experimental
     % Get the time point and find closest time index
     [~, time_idx] = min(abs(times - time_point));
     
-    % Get data for this time point (all channels)
+    % Get data for this time point (all channels) - use full data, not masked
     topo_data = plot_data(:, time_idx);
     
     % Get t, p, and df for title
