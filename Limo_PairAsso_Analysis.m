@@ -233,25 +233,34 @@ disp(fieldnames(Data));
 
 %% Specify data for plots
 
-load('/Volumes/T7/ERP Files/Epoched Files 50/paired_ttest3/LIMO.mat');
-data = load('/Volumes/T7/ERP Files/Epoched Files 50/paired_ttest3/paired_samples_ttest_parameter_35.mat');
+load('/Volumes/T7/ERP Files/Epoched Files 50/paired_ttest4/LIMO.mat');
+%data = load('/Volumes/T7/ERP Files/Epoched Files 50/paired_ttest3/paired_samples_ttest_parameter_35.mat');
+data = load('/Volumes/T7/ERP Files/Epoched Files 50/paired_ttest4/paired_samples_ttest_parameter_34.mat');
 one_sample = data.paired_samples;
 
+%[M, mask, mytitle] = limo_stat_values('paired_samples_ttest_parameter_12.mat', 0.05, 3, LIMO);
+
+%LIMO.cache.fig.pval = M;
+%LIMO.cache.fig.mask = mask;
+%LIMO.cache.fig.MCC = 3;
+%LIMO.cache.fig.threshold = 0.05;
+
+df_values = squeeze(one_sample(:,:,3)); % df-values (3rd dimension)
 plot_data = squeeze(one_sample(:,:,4)); % t-values (4th dimension)
 %p_values = squeeze(one_sample(:,:,5)); % p-values (5th dimension)
-p_values = squeeze(LIMO.cache.fig.pval); % p-values (5th dimension)
-df_values = squeeze(one_sample(:,:,3)); % df-values (3rd dimension)
+p_values = squeeze(LIMO.cache.fig.pval); % cluster/tfce p-values (LIMO cache)
+%likelihood_values = squeeze(one_sample(:,:,6)); % likelihood values (6th dimension)
 
 %% Plot the electodes versus time 2D and 3D graphs
 
 % The function has 3 parameters pointing to the test directory, so it's
 % easier to go to that directory first and use pwd
-cd '/Volumes/T7/ERP Files/Epoched Files 50/paired_ttest3'
+cd '/Volumes/T7/ERP Files/Epoched Files 50/paired_ttest2'
 limo_display_results(1, ... # electodes x time graph
-    'paired_samples_ttest_parameter_35.mat', ... # test statistics mat file
+    'paired_samples_ttest_parameter_34.mat', ... # test statistics mat file
     pwd, ... # path to the test directory
     0.05, ... # significance level
-    3, ... # MCC: 1 = none, 2 = cluster, 3 = TFCE, 4 = max
+    2, ... # MCC: 1 = none, 2 = cluster, 3 = TFCE, 4 = max
     fullfile(pwd,'LIMO.mat'), ... # LIMO mat file
     0 ... # interactive figure: 0 = false, 1 = true
     );
@@ -954,7 +963,7 @@ dynamic_title = strcat(LIMO.cache.fig.title, correction_suffix);
 
 if plot_topoplots
     annotation('textbox', [0, 0.85, 1, 0.15], ...
-               'String', dynamic_title, ...
+               'String', 'Subsequent Memory Effect Paired T-test With TFCE Correction', ... % dynamic_title
                'EdgeColor', 'none', ...
                'HorizontalAlignment', 'center', ...
                'VerticalAlignment', 'middle', ...
@@ -962,7 +971,7 @@ if plot_topoplots
                'Color', 'k');
 else
     annotation('textbox', [0, 0.78, 1, 0.10], ... % Higher position above the plot
-               'String', dynamic_title, ...
+               'String', 'Subsequent Memory Effect Paired T-test With TFCE Correction', ... % dynamic_title
                'EdgeColor', 'none', ...
                'HorizontalAlignment', 'center', ...
                'VerticalAlignment', 'middle', ...
@@ -978,27 +987,8 @@ set(fig_exp, 'InvertHardCopy', 'off');
 % Export at high resolution (600 DPI) - text will scale automatically
 print(fig_exp, '/Users/devon7y/Downloads/time_channel_plot_high_res.png', '-dpng', '-r600');
 
-%% New TODO
-% Add a feature in my channel-time graph so that you can define rectangles
-% that highlight a given range of values, defined by the two corner values.
-% These rectangles will have an associated label on the left side of the graph
-% Consider plotting TFCE statistics instead of t-values on the channel-time graph
-% Look at how topoplots merge values at each electrode point and consider
-% changing them to more direct pixel translations like the channel-time graph
-% Consider using TFCE stats for topoplots too
-% Provide an easy way to update LIMO.cache.fig.title values
-% Make a channel-time plot that it is only the plot, and it is shaped such
-% that it always has square pixels, so the shape is determined by the
-% channels x time lengths
-% Reduce filesize of eegmovies
 
-% Verify the six condition numerical codings
-
-% Find a way to apply individual subject correlation analysis to MUA. Other
-% papers likely tried this before
-
-
-%% Experimental
+%% Experimental Darken for Rectangles
 % This section demonstrates an alternative highlighting approach where
 % non-selected channels are masked with a semi-transparent black overlay.
 
@@ -1391,3 +1381,535 @@ annotation('textbox', [0, 0.85, 1, 0.15], ...
            'FontSize', 21, ...
            'Color', 'k', ...
            'FitBoxToText', 'on');
+
+%% Time-Channel Plot with Likelihood Ratios
+
+% Define rectangles for highlighting. Each cell contains a 2x2 matrix for
+% a rectangle, defined by its top-left and bottom-right corners in the
+% format: [time_ms, channel; time_ms, channel].
+highlight_rects_bf = {[400, 21; 800, 21], [400, 36; 800, 36], [400, 101; 800, 101], [400, 153; 800, 153]};
+% Example: [400, 21; 700, 21], [400, 36; 700, 36], [400, 101; 700, 101], [-100, 224; 1500, 224]
+
+% Define labels for the highlighted rectangles. The number of labels should
+% match the number of rectangles.
+highlight_labels_bf = {'E21', 'E36', 'E101', 'E153'};
+
+% Likelihood Ratio threshold for strong evidence categorization
+% User can modify this value - values above this show strong evidence for H1,
+% values below 1/threshold show strong evidence for H0
+LR_strong_threshold = 10;       % Strong evidence threshold (Kang et al. 2015)
+
+% Alpha value for inconclusive evidence pixels (0 = invisible, 0.4 = 40% opacity, etc.)
+alpha_nonsig_lr = 0.4;
+
+% Use log10-transformed Likelihood Ratios for symmetric visualization
+% log10(LR) = 0 when LR = 1 (no evidence either way)
+% log10(LR) > 0 when LR > 1 (evidence for H1, plotted in red)
+% log10(LR) < 0 when LR < 1 (evidence for H0, plotted in blue)
+LR_data = log10(likelihood_values);
+
+% Create alpha mask for evidence-based transparency
+% Strong evidence pixels get full opacity (1), inconclusive evidence gets reduced opacity
+alpha_mask_evidence = ones(size(likelihood_values));
+alpha_mask_evidence(likelihood_values < LR_strong_threshold & likelihood_values > 1/LR_strong_threshold) = alpha_nonsig_lr;
+
+% LIMO-style colormap for log10(LR), ensuring it's symmetric around 0
+abs_max_lr = max(abs(LR_data(:)));
+if isempty(abs_max_lr) || abs_max_lr == 0
+    abs_max_lr = 1; % handle case with no strong evidence
+end
+cc_lr = limo_color_images([-abs_max_lr, abs_max_lr]);
+
+% Create time-channel plot data
+% Placeholder values from tutorial: [400 8; 350 14; 500 24; 1050 11]
+% Format: [time_ms, channel]
+time_channel_points_original_bf = [];
+
+% Check if topoplots should be plotted
+plot_topoplots_bf = ~isempty(time_channel_points_original_bf);
+
+if plot_topoplots_bf
+    % Sort points by time (x-axis) for proper topoplot ordering
+    [~, sort_idx] = sort(time_channel_points_original_bf(:, 1));
+    time_channel_points_bf = time_channel_points_original_bf(sort_idx, :);
+
+    % Define the number of points to plot
+    num_tf_points_bf = size(time_channel_points_bf, 1);
+else
+    time_channel_points_bf = [];
+    num_tf_points_bf = 0;
+end
+
+% Time setup
+times_bf = linspace(LIMO.data.start, LIMO.data.end, size(plot_data,2));
+
+% Create figure for time-channel plot with topoplots above
+fig_bf = figure('Position', [100 100 1000 700], 'Color', 'w', 'InvertHardcopy', 'off');
+
+% Apply LIMO colormap to this figure
+colormap(fig_bf, cc_lr);
+
+% Create main time-channel plot - adjust position based on whether topoplots are present
+if plot_topoplots_bf
+    imgax_bf = axes('Position', [0.08 0.10 0.78 0.55]); % Lower position with space for topoplots above
+else
+    imgax_bf = axes('Position', [0.08 0.12 0.78 0.68]); % Lower the plot to create more space above for title
+end
+set(imgax_bf, 'Color', [0.9 0.9 0.9], 'XColor', 'k', 'YColor', 'k', 'Box', 'on', 'LineWidth', 1); % Set axes background and and outline to black with thicker border
+
+% Plot the log10(LR) data (no alpha masking)
+h_img_bf = imagesc(times_bf, 1:size(LR_data,1), LR_data);
+xlim([times_bf(1), times_bf(end)]);
+
+% Apply alpha masking (all ones = no masking, full opacity)
+set(h_img_bf, 'AlphaData', alpha_mask_evidence);
+
+% Set background color to show through transparent areas
+set(imgax_bf, 'Color', [0.9 0.9 0.9]);
+
+% Set color limits for log10(LR) - symmetric around 0
+caxis([-abs_max_lr, abs_max_lr]);
+
+% Add labels
+xlabel('Time (ms)', 'Color', 'k');
+ylabel('Channel', 'Color', 'k');
+
+% Flip y-axis so channel 1 is at the top
+set(imgax_bf, 'YDir', 'reverse');
+ylim([1 size(LR_data,1)]);
+grid(imgax_bf, 'off'); % Turn off all grid lines for the specific axes
+
+% Set tick label colors to black
+set(imgax_bf, 'XColor', 'k', 'YColor', 'k');
+hold on;
+
+% Draw highlighted rectangles and labels if any are defined
+if ~isempty(highlight_rects_bf)
+    % Get properties for label positioning and sizing
+    axis_font_size = get(imgax_bf, 'FontSize');
+    time_range = times_bf(end) - times_bf(1);
+    label_offset = 0.004 * time_range; % 2% offset to the left
+
+    % Get time step for pixel adjustment, assuming uniform spacing
+    if length(times_bf) > 1
+        time_step = times_bf(2) - times_bf(1);
+    else
+        time_step = 0;
+    end
+
+    for i = 1:length(highlight_rects_bf)
+        coords = highlight_rects_bf{i};
+        time1 = coords(1,1);
+        chan1 = coords(1,2);
+        time2 = coords(2,1);
+        chan2 = coords(2,2);
+
+        % Adjust coordinates to cover the full pixels.
+        % For imagesc, pixels are centered on the coordinate points.
+        % We need to extend the rectangle by half a pixel in each direction.
+
+        % Find the time indices corresponding to the time values
+        [~, time_idx1] = min(abs(times_bf - time1));
+        [~, time_idx2] = min(abs(times_bf - time2));
+
+        % Get the exact time values from the times vector
+        exact_time1 = times_bf(time_idx1);
+        exact_time2 = times_bf(time_idx2);
+
+        x = min(exact_time1, exact_time2) - time_step/2;
+        y = min(chan1, chan2) - 0.5;
+        width = abs(exact_time2 - exact_time1) + time_step;
+        height = abs(chan2 - chan1) + 1;
+
+        rectangle('Position', [x, y, width, height], ...
+                  'FaceColor', [0 1 0], ... % Green
+                  'FaceAlpha', 0.5, ...      % Set alpha value for transparency
+                  'EdgeColor', 'none');
+
+        % Add a label to the left of the rectangle
+        if i <= length(highlight_labels_bf) && ~isempty(highlight_labels_bf{i})
+            label_text = highlight_labels_bf{i};
+            % Position the label vertically in the middle of the rectangle, with a slight upward adjustment
+            label_y = y + height/2 - 0.25;
+
+            % Position the label horizontally to the left of the plot
+            label_x = times_bf(1) - label_offset;
+
+            text(label_x, label_y, label_text, ...
+                 'HorizontalAlignment', 'right', ...
+                 'VerticalAlignment', 'middle', ...
+                 'Color', 'k', ...
+                 'FontSize', axis_font_size, ...
+                 'Clipping', 'off'); % Prevent label from being clipped
+        end
+    end
+end
+
+% Add vertical line at time=0
+ylim_vals = get(imgax_bf, 'YLim');
+plot(imgax_bf, [0 0], ylim_vals, 'Color', [0.3 0.3 0.3], 'LineStyle', '--', 'LineWidth', 1);
+
+
+if plot_topoplots_bf
+    % Pre-calculate topoplot positions for line drawing
+    topo_positions_bf = zeros(num_tf_points_bf, 4); % [x, y, width, height] for each topoplot
+    for n = 1:num_tf_points_bf
+        % Position topoplots evenly across the top of the figure
+        % Space them evenly from left to right, regardless of their time points
+        topo_x = 0.1 + (n-1) * (0.75 / num_tf_points_bf) + (0.75 / num_tf_points_bf - 0.15) / 2; % Adjusted for new topo_size
+        topo_y = 0.69; % Position above main plot with more space from title
+        topo_size = 0.15; % Size of each topoplot
+
+        topo_positions_bf(n, :) = [topo_x, topo_y, topo_size, topo_size];
+    end
+
+    % Store all data for drawing lines and markers in proper order
+    marker_data_bf = zeros(num_tf_points_bf, 2);
+    line_coords_bf = zeros(num_tf_points_bf, 4);
+
+    % Calculate line coordinates using pre-calculated topoplot positions
+    for n = 1:num_tf_points_bf
+        time_point = time_channel_points_bf(n, 1);
+        channel_point = time_channel_points_bf(n, 2);
+
+        % Store marker data for later
+        marker_data_bf(n,:) = [time_point, channel_point];
+
+        % Get coordinates for the line in figure units
+        main_pos = get(imgax_bf, 'Position');
+        ylims = get(imgax_bf, 'YLim');
+        time_norm = (time_point - min(times_bf)) / (max(times_bf) - min(times_bf));
+        channel_norm = (channel_point - ylims(1)) / (ylims(2) - ylims(1));
+        from_x = main_pos(1) + time_norm * main_pos(3);
+        from_y = main_pos(2) + (1 - channel_norm) * main_pos(4); % Corrected for reversed y-axis
+
+        topo_pos = topo_positions_bf(n, :); % Use pre-calculated position
+        to_x = topo_pos(1) + topo_pos(3) * 0.5;
+        to_y = topo_pos(2) + 0.009;
+
+        line_coords_bf(n,:) = [from_x, to_x, from_y, to_y];
+    end
+end
+
+% Update variable name reference for consistency
+LR_data_for_limits = LR_data;
+
+% Set focus to the main plot
+axes(imgax_bf);
+
+if plot_topoplots_bf
+    % Draw connecting lines on the main plot by converting figure to data coordinates
+    main_pos = get(imgax_bf, 'Position');
+    xlims = get(imgax_bf, 'XLim');
+    ylims = get(imgax_bf, 'YLim');
+
+    for n = 1:size(line_coords_bf, 1)
+        % Line endpoints in figure units
+        from_x_fig = line_coords_bf(n, 1);
+        to_x_fig = line_coords_bf(n, 2);
+        from_y_fig = line_coords_bf(n, 3);
+        to_y_fig = line_coords_bf(n, 4);
+
+        % Vector from start to end in figure units
+        dx_fig = to_x_fig - from_x_fig;
+        dy_fig = to_y_fig - from_y_fig;
+        len_fig = sqrt(dx_fig^2 + dy_fig^2);
+
+        % Normalize the vector
+        udx_fig = dx_fig / len_fig;
+        udy_fig = dy_fig / len_fig;
+
+        % Shorten by a fixed amount in figure units. This value may need tuning.
+        shorten_amount = 0.0057;
+        from_x_fig_new = from_x_fig + shorten_amount * udx_fig;
+        from_y_fig_new = from_y_fig + shorten_amount * udy_fig;
+
+        % Convert new start point from figure units back to data units
+        time_norm_start_new = (from_x_fig_new - main_pos(1)) / main_pos(3);
+        time_start_new = time_norm_start_new * (xlims(2) - xlims(1)) + xlims(1);
+        channel_norm_start_new = 1 - ((from_y_fig_new - main_pos(2)) / main_pos(4));
+        channel_start_new = channel_norm_start_new * (ylims(2) - ylims(1)) + ylims(1);
+
+        % Convert end point from figure units back to data units
+        time_norm_end = (to_x_fig - main_pos(1)) / main_pos(3);
+        time_end = time_norm_end * (xlims(2) - xlims(1)) + xlims(1);
+        channel_norm_end = 1 - ((to_y_fig - main_pos(2)) / main_pos(4));
+        channel_end = channel_norm_end * (ylims(2) - ylims(1)) + ylims(1);
+
+        % Draw connecting line in black
+        plot([time_start_new, time_end], [channel_start_new, channel_end], 'k', 'LineWidth', 2, 'Clipping', 'off');
+    end
+
+    % Then draw all markers in the plot, so they appear on top of the lines
+    for n = 1:num_tf_points_bf
+        time_point = marker_data_bf(n, 1);
+        channel_point = marker_data_bf(n, 2);
+
+        % Add marker at the time-channel point with black outline
+        plot(time_point, channel_point, 'ko', 'MarkerSize', 11, ...
+            'MarkerFaceColor', 'none', 'LineWidth', 2);
+    end
+
+    % Store topoplot axes handles
+    topoaxes_bf = zeros(1, num_tf_points_bf);
+
+    % Now create topoplots evenly spaced across the top (like tftopo) - they will appear above lines
+    for n = 1:num_tf_points_bf
+        time_point = time_channel_points_bf(n, 1);
+        channel_point = time_channel_points_bf(n, 2);
+
+        % Use pre-calculated topoplot position
+        topo_pos = topo_positions_bf(n, :);
+
+        % Create topoplot axes
+        topoaxes_bf(n) = axes('Position', topo_pos);
+
+        % Get the time point and find closest time index
+        [~, time_idx] = min(abs(times_bf - time_point));
+
+        % Get data for this time point (all channels) - use full data, not masked
+        topo_data_bf = LR_data(:, time_idx);
+
+        % Get t, LR, and df for title
+        t_value = plot_data(channel_point, time_idx);
+        LR_value = likelihood_values(channel_point, time_idx);
+        df = df_values(channel_point, time_idx);
+        log10_LR_value = LR_data(channel_point, time_idx);
+
+        % Create topoplot and then modify white background patches to be transparent
+        topoplot(topo_data_bf, LIMO.data.chanlocs, ... % DO NOT APPLY THE MASK TO TOPOPLOTS
+            'maplimits', [-abs_max_lr, abs_max_lr], ...
+            'colormap', cc_lr, ...
+            'electrodes', 'off', ...
+            'style', 'both', ...
+            'shading', 'interp', ...
+            'numcontour', 6, ...
+            'hcolor', 'k'); % Keep head outline black
+
+        % Mark the specific channel electrode with a solid black dot
+        hold on;
+        % Create a simple overlay topoplot with just electrode markers
+        topoplot([], LIMO.data.chanlocs, ...
+            'plotchans', channel_point, ...
+            'colormap', cc_lr, ...
+            'electrodes', 'on', ...
+            'emarker', {'.', 'k', 16, 1}, ...
+            'style', 'blank', ...
+            'hcolor', 'none');
+        hold off;
+
+        % Find and make the white background patches transparent
+        patch_handles = findobj(gca, 'Type', 'patch');
+        for i = 1:length(patch_handles)
+            % Check if this patch has the BACKCOLOR (light blue/white)
+            face_color = get(patch_handles(i), 'FaceColor');
+            if isnumeric(face_color) && length(face_color) == 3
+                % Check if it's close to the BACKCOLOR [.93 .96 1]
+                if all(abs(face_color - [0.93 0.96 1]) < 0.1)
+                    % Make this patch transparent
+                    set(patch_handles(i), 'FaceAlpha', 0);
+                end
+            end
+        end
+
+        % Add title showing time and channel, and stats
+        title_line1 = sprintf('E%d, %d ms', channel_point, time_point);
+        if LR_value >= 1000
+            LR_string = sprintf('LR = %.2e', LR_value);
+        elseif LR_value < 0.001
+            LR_string = sprintf('LR = %.2e', LR_value);
+        else
+            LR_string = sprintf('LR = %.3f', LR_value);
+        end
+        title_line2 = sprintf('t(%d) = %.3f, %s', df, t_value, LR_string);
+        title_line3 = sprintf('log10(LR) = %.3f', log10_LR_value);
+        title({title_line1, title_line2, title_line3}, 'FontSize', 9, 'Color', 'k');
+
+        % Make topoplots circular
+        axis tight;
+        axis equal;
+
+        % Add circular outline around topoplot with transparent white background
+        set(gca, 'XTick', [], 'YTick', [], 'Box', 'off');
+        hold on;
+        % Draw circular outline (smaller to match color border)
+        theta = 0:0.01:2*pi;
+        xlims = xlim;
+        ylims = ylim;
+        radius = min(diff(xlims), diff(ylims))/2 * 0.93; % Make 8% smaller to match color border
+        center_x = mean(xlims);
+        center_y = mean(ylims);
+        circle_x = center_x + radius * cos(theta);
+        circle_y = center_y + radius * sin(theta);
+        % Draw white background circle first (for typical outline effect)
+        h_white = plot(circle_x, circle_y, 'Color', [1 1 1 0], 'LineWidth', 4.5); % Transparent white
+        % Draw black outline on top (thinner to match other elements)
+        plot(circle_x, circle_y, 'k', 'LineWidth', 1);
+        hold off;
+    end
+end
+
+% Ensure LIMO colormap is applied to the main time-channel axes
+colormap(imgax_bf, cc_lr);
+
+% Add colorbar positioned to the right of the main plot - adjust based on plot position
+if plot_topoplots_bf
+    h_bf = colorbar(imgax_bf, 'Position', [0.88 0.10 0.04 0.55]); % Match lower plot position
+else
+    h_bf = colorbar(imgax_bf, 'Position', [0.88 0.12 0.04 0.68]); % Match adjusted plot position
+end
+
+% Set up colorbar with log10(LR) labels
+title(h_bf, 'log10(LR)', 'FontSize', 10, 'Color', 'k');
+set(h_bf, 'Color', 'k', 'Box', 'on', 'LineWidth', 1, 'TickLength', 0); % Set colorbar text and outline to black, remove internal gridlines
+
+% Add Likelihood Ratio threshold lines to colorbar (in log10 space)
+% LR thresholds: only strong evidence (10 for H1, 1/10 for H0)
+log10_LR_threshold_strong_H1 = log10(LR_strong_threshold);      % e.g., log10(10) = 1.0
+log10_LR_threshold_strong_H0 = log10(1/LR_strong_threshold);    % e.g., log10(1/10) = -1.0
+
+% Get colorbar position and limits
+cbar_pos_bf = get(h_bf, 'Position'); % [x, y, width, height] in figure normalized coordinates
+cbar_limits_bf = get(h_bf, 'Limits'); % [min, max] data values
+
+% Calculate normalized positions of threshold lines within colorbar
+y_strong_H1 = NaN;
+y_strong_H0 = NaN;
+
+% For strong H1 threshold
+if log10_LR_threshold_strong_H1 >= cbar_limits_bf(1) && log10_LR_threshold_strong_H1 <= cbar_limits_bf(2)
+    norm_pos = (log10_LR_threshold_strong_H1 - cbar_limits_bf(1)) / (cbar_limits_bf(2) - cbar_limits_bf(1));
+    y_strong_H1 = cbar_pos_bf(2) + norm_pos * cbar_pos_bf(4);
+end
+
+% For strong H0 threshold
+if log10_LR_threshold_strong_H0 >= cbar_limits_bf(1) && log10_LR_threshold_strong_H0 <= cbar_limits_bf(2)
+    norm_pos = (log10_LR_threshold_strong_H0 - cbar_limits_bf(1)) / (cbar_limits_bf(2) - cbar_limits_bf(1));
+    y_strong_H0 = cbar_pos_bf(2) + norm_pos * cbar_pos_bf(4);
+end
+
+% Add semi-transparent overlay for inconclusive region (between thresholds)
+if ~isnan(y_strong_H0) && ~isnan(y_strong_H1)
+    % Calculate the overlay rectangle position with slight inset to avoid covering borders
+    border_inset = 0.0006; % Small inset to avoid covering colorbar borders
+    overlay_x = cbar_pos_bf(1) + border_inset;
+    overlay_y = y_strong_H0;
+    overlay_width = cbar_pos_bf(3) - 2*border_inset;
+    overlay_height = y_strong_H1 - y_strong_H0;
+
+    % Create semi-transparent rectangle to "fade out" inconclusive region
+    % Color #E9E6E6 in RGB: [233, 230, 230] / 255 = [0.9137, 0.9020, 0.9020]
+    annotation('rectangle', [overlay_x, overlay_y, overlay_width, overlay_height], ...
+        'FaceColor', [0.9137, 0.9020, 0.9020], ...  % Light gray overlay (#E9E6E6)
+        'FaceAlpha', 1 - alpha_nonsig_lr, ...  % Transparency inverse of plot alpha
+        'EdgeColor', 'none');
+end
+
+% Draw threshold lines on top of the overlay
+if ~isnan(y_strong_H1)
+    annotation('line', [cbar_pos_bf(1), cbar_pos_bf(1) + cbar_pos_bf(3)], [y_strong_H1, y_strong_H1], ...
+        'LineStyle', '-', 'Color', 'k', 'LineWidth', 1);
+end
+
+if ~isnan(y_strong_H0)
+    annotation('line', [cbar_pos_bf(1), cbar_pos_bf(1) + cbar_pos_bf(3)], [y_strong_H0, y_strong_H0], ...
+        'LineStyle', '-', 'Color', 'k', 'LineWidth', 1);
+end
+
+% Final formatting: ensure all axes elements are black
+set(imgax_bf, 'XColor', 'k', 'YColor', 'k', 'Box', 'on', 'LineWidth', 1, 'TickLength', [0 0]);
+% Set custom y-axis ticks. If custom labels are used, only show the
+% first and last channel numbers. Otherwise, show 10 equally spaced values.
+num_channels_bf = size(LR_data, 1);
+has_custom_labels_bf = ~isempty(highlight_labels_bf) && any(cellfun(@(x) ~isempty(x), highlight_labels_bf));
+
+if has_custom_labels_bf
+    ytick_values = [1, num_channels_bf];
+else
+    ytick_values = round(linspace(1, num_channels_bf, 10));
+end
+set(imgax_bf, 'YTick', ytick_values);
+
+% Set custom x-axis ticks - always include last time point
+tick_interval = 250;
+min_tick = ceil(times_bf(1) / tick_interval) * tick_interval;
+max_tick = floor(times_bf(end) / tick_interval) * tick_interval;
+
+% Create regular ticks
+regular_ticks = min_tick:tick_interval:max_tick;
+
+% Always include the actual end time
+all_ticks_bf = [regular_ticks, times_bf(end)];
+
+% Remove duplicates and sort
+all_ticks_bf = unique(all_ticks_bf);
+
+set(imgax_bf, 'XTick', all_ticks_bf);
+
+% Adjust text sizes for high-resolution export
+set(imgax_bf, 'FontSize', 7); % Axis tick labels
+xlabel(imgax_bf, 'Time (ms)', 'Color', 'k', 'FontSize', 8); % X-axis label
+ylabel(imgax_bf, 'Channel', 'Color', 'k', 'FontSize', 8); % Y-axis label
+
+% Adjust axis label positions
+h_xlabel_bf = get(imgax_bf, 'XLabel');
+h_ylabel_bf = get(imgax_bf, 'YLabel');
+xlabel_pos_bf = get(h_xlabel_bf, 'Position');
+ylabel_pos_bf = get(h_ylabel_bf, 'Position');
+set(h_xlabel_bf, 'Position', [xlabel_pos_bf(1), xlabel_pos_bf(2) + 3, xlabel_pos_bf(3)]); % Move x-label down by 5 units
+set(h_ylabel_bf, 'Position', [ylabel_pos_bf(1) - 25, ylabel_pos_bf(2), ylabel_pos_bf(3)]); % Move y-label left by 15 units
+
+% Colorbar text
+title(h_bf, 'log10(LR)', 'FontSize', 8, 'Color', 'k'); % Colorbar title
+set(h_bf, 'FontSize', 7); % Colorbar tick labels
+
+% Adjust highlight labels text size (if any exist)
+if ~isempty(highlight_rects_bf)
+    text_objs = findobj(imgax_bf, 'Type', 'text');
+    for i = 1:length(text_objs)
+        if contains(get(text_objs(i), 'String'), {'E', 'Fz', 'F3', 'F4', 'Pz'}) % Common electrode patterns
+            set(text_objs(i), 'FontSize', 7); % Adjust highlight label font size
+        end
+    end
+end
+
+% Add title using annotation positioned above the plot
+% Determine correction method suffix based on LIMO.cache.fig.MCC
+if LIMO.cache.fig.MCC == 1
+    correction_suffix_bf = ' Uncorrected';
+elseif LIMO.cache.fig.MCC == 2
+    correction_suffix_bf = ' With Cluster Correction';
+elseif LIMO.cache.fig.MCC == 3
+    correction_suffix_bf = ' With TFCE Correction';
+else
+    correction_suffix_bf = ''; % Default case
+end
+
+% Create dynamic title as single string
+dynamic_title_bf = strcat(LIMO.cache.fig.title, ' (Likelihood Ratios)', correction_suffix_bf);
+
+if plot_topoplots_bf
+    annotation('textbox', [0, 0.85, 1, 0.15], ...
+               'String', 'Subsequent Memory Effect Paired T-test Likelihood Ratios', ... % dynamic_title_bf
+               'EdgeColor', 'none', ...
+               'HorizontalAlignment', 'center', ...
+               'VerticalAlignment', 'middle', ...
+               'FontSize', 12, ...
+               'Color', 'k');
+else
+    annotation('textbox', [0, 0.78, 1, 0.10], ... % Higher position above the plot
+               'String', 'Subsequent Memory Effect Paired T-test Likelihood Ratios', ... % dynamic_title_bf
+               'EdgeColor', 'none', ...
+               'HorizontalAlignment', 'center', ...
+               'VerticalAlignment', 'middle', ...
+               'FontSize', 14, ...
+               'Color', 'k');
+end
+
+% Set figure properties for high-resolution export with scaled text
+set(fig_bf, 'PaperPositionMode', 'auto');
+set(fig_bf, 'PaperUnits', 'inches');
+set(fig_bf, 'InvertHardCopy', 'off');
+
+% Export at high resolution (600 DPI) - text will scale automatically
+print(fig_bf, '/Users/devon7y/Downloads/time_channel_plot_LR_high_res.png', '-dpng', '-r600');
