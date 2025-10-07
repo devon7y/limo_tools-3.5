@@ -273,7 +273,7 @@ for f=1:length(LIMO_files)
             end
             save ('ttest_good_vs_outliers_trials','two_samples', '-v7.3')
             LIMO.dir = pwd; save(fullfile(LIMO.dir,'LIMO.mat'));
-            Y1r = Yr(:,:,index1); save Y1r Y1r; clear Y1r
+            Yr1 = Yr(:,:,index1); save Yr1 Yr1; clear Yr1
             Y2r = Yr(:,:,index2); save Y2r Y2r; clear Y2r
             % some trial metrics
             [DT1,TP1,AC1] = limo_trialmetric(Yr(:,:,index1),'std_time','on','power','on',...
