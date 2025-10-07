@@ -835,20 +835,49 @@ sig_threshold = -log10(alpha_threshold); % Threshold on -log10 scale
 % Get colorbar position and limits
 cbar_pos = get(h, 'Position'); % [x, y, width, height] in figure normalized coordinates
 cbar_limits = get(h, 'Limits'); % [min, max] data values
-% Calculate normalized position of threshold lines within colorbar
+
+% Calculate normalized positions of threshold lines within colorbar
+y_pos = NaN; % Initialize
+y_neg = NaN; % Initialize
+
 % For positive threshold
 if sig_threshold >= cbar_limits(1) && sig_threshold <= cbar_limits(2)
     norm_pos_pos = (sig_threshold - cbar_limits(1)) / (cbar_limits(2) - cbar_limits(1));
     y_pos = cbar_pos(2) + norm_pos_pos * cbar_pos(4);
-    annotation('line', [cbar_pos(1), cbar_pos(1) + cbar_pos(3)], [y_pos, y_pos], ...
-        'LineStyle', '--', 'Color', 'k', 'LineWidth', 1.5);
 end
+
 % For negative threshold
 if -sig_threshold >= cbar_limits(1) && -sig_threshold <= cbar_limits(2)
     norm_pos_neg = (-sig_threshold - cbar_limits(1)) / (cbar_limits(2) - cbar_limits(1));
     y_neg = cbar_pos(2) + norm_pos_neg * cbar_pos(4);
+end
+
+% Add semi-transparent overlay for non-significant region (between thresholds)
+if ~isnan(y_neg) && ~isnan(y_pos)
+    % Calculate the overlay rectangle position with slight inset to avoid covering borders
+    border_inset = 0.0006; % Small inset to avoid covering colorbar borders
+    overlay_x = cbar_pos(1) + border_inset;
+    overlay_y = y_neg;
+    overlay_width = cbar_pos(3) - 2*border_inset;
+    overlay_height = y_pos - y_neg;
+
+    % Create semi-transparent rectangle to "fade out" non-significant region
+    % Color #E9E6E6 in RGB: [233, 230, 230] / 255 = [0.9137, 0.9020, 0.9020]
+    annotation('rectangle', [overlay_x, overlay_y, overlay_width, overlay_height], ...
+        'FaceColor', [0.9137, 0.9020, 0.9020], ...  % Light gray overlay (#E9E6E6)
+        'FaceAlpha', 1 - alpha_nonsig, ...  % Transparency inverse of plot alpha
+        'EdgeColor', 'none');
+end
+
+% Draw threshold lines on top of the overlay
+if ~isnan(y_pos)
+    annotation('line', [cbar_pos(1), cbar_pos(1) + cbar_pos(3)], [y_pos, y_pos], ...
+        'LineStyle', '-', 'Color', 'k', 'LineWidth', 1);
+end
+
+if ~isnan(y_neg)
     annotation('line', [cbar_pos(1), cbar_pos(1) + cbar_pos(3)], [y_neg, y_neg], ...
-        'LineStyle', '--', 'Color', 'k', 'LineWidth', 1.5);
+        'LineStyle', '-', 'Color', 'k', 'LineWidth', 1);
 end
 
 % Final formatting: ensure all axes elements are black
