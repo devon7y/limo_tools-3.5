@@ -262,10 +262,25 @@ elseif nargin == 6 || nargin == 7
                             tmp(channel,:,:) = limo_tf_4d_reshape(fw,LIMO.data.size3D);
                             clear fw;
                         else
-                            tmp(channel,:,:) = squeeze(Yr(channel,:,index)).*repmat(LIMO.design.weights(channel,index),size(Yr,2),1);
+                            trial_data = squeeze(Yr(channel,:,index));
+                            weighted_data = trial_data.*repmat(LIMO.design.weights(channel,index),size(Yr,2),1);
+                            if sum(index) == 1
+                                % For single trial, ensure correct dimensions [time_points × 1]
+                                tmp(channel,:,:) = weighted_data(:);
+                            else
+                                % Multiple trials, normal processing
+                                tmp(channel,:,:) = weighted_data;
+                            end
                         end
                     else
-                        tmp(channel,:,index) = squeeze(Yr(channel,:,index));
+                        trial_data = squeeze(Yr(channel,:,index));
+                        if sum(index) == 1
+                            % For single trial, ensure correct dimensions [time_points × 1]
+                            tmp(channel,:,:) = trial_data(:);
+                        else
+                            % Multiple trials, normal processing
+                            tmp(channel,:,:) = trial_data;
+                        end
                     end
                 end
                 
