@@ -996,18 +996,65 @@ end % switch type
 if exist('LIMO', 'var') && isfield(LIMO, 'design') && isfield(LIMO.design, 'bootstrap') && LIMO.design.bootstrap > 0
     fprintf('\n=== CENTRALIZED BOOTSTRAP PROCESSING ===\n');
     
+    % Set incremental processing defaults
+    if ~isfield(LIMO.design, 'incremental_bootstrap')
+        LIMO.design.incremental_bootstrap = 'yes';  % Enable incremental by default
+    end
+    if ~isfield(LIMO.design, 'keep_bootstrap_chunks')
+        LIMO.design.keep_bootstrap_chunks = 'yes';  % Keep chunk files by default
+    end
+    
     % Determine if we should run bootstrap based on the analysis type
     run_bootstrap = true;
+    existing_bootstraps = 0;
+    existing_boot_files = [];
     
-    % Check if bootstrap files already exist
-    if usejava('desktop')
-        boot_files = dir(fullfile(LIMO.dir, 'H0', 'H0_*.mat'));
-        if ~isempty(boot_files)
+    % Check for existing bootstrap files and determine incremental processing
+    boot_files = dir(fullfile(LIMO.dir, 'H0', 'H0_*.mat'));
+    if ~isempty(boot_files) && strcmpi(LIMO.design.incremental_bootstrap, 'yes')
+        fprintf('\n--- Checking existing bootstrap files for incremental processing ---\n');
+        
+        % Analyze existing bootstrap files
+        for bf = 1:length(boot_files)
+            boot_file_path = fullfile(boot_files(bf).folder, boot_files(bf).name);
+            try
+                file_info = whos('-file', boot_file_path);
+                for fi = 1:length(file_info)
+                    var_name = file_info(fi).name;
+                    if startsWith(var_name, 'H0_')
+                        var_size = file_info(fi).size;
+                        n_bootstraps = var_size(end);  % Last dimension should be bootstraps
+                        fprintf('  Found %s with %d bootstraps\n', boot_files(bf).name, n_bootstraps);
+                        existing_bootstraps = max(existing_bootstraps, n_bootstraps);
+                        existing_boot_files{end+1} = struct('file', boot_file_path, 'var', var_name, 'bootstraps', n_bootstraps);
+                        break;
+                    end
+                end
+            catch
+                fprintf('  Warning: Could not read %s\n', boot_files(bf).name);
+            end
+        end
+        
+        if existing_bootstraps > 0
+            fprintf('Maximum existing bootstraps found: %d\n', existing_bootstraps);
+            if existing_bootstraps >= LIMO.design.bootstrap
+                fprintf('All requested bootstraps already exist. No additional processing needed.\n');
+                run_bootstrap = false;
+            else
+                fprintf('Will add %d new bootstraps (%d to %d)\n', ...
+                    LIMO.design.bootstrap - existing_bootstraps, existing_bootstraps + 1, LIMO.design.bootstrap);
+            end
+        end
+    elseif ~isempty(boot_files) && strcmpi(LIMO.design.incremental_bootstrap, 'no')
+        % Traditional behavior - ask user about overwrite
+        if usejava('desktop')
             answer = questdlg('Bootstrap files already exist - overwrite?', 'Data check', 'Yes', 'No', 'Yes');
             if ~strcmp(answer, 'Yes')
                 run_bootstrap = false;
             end
         end
+    elseif ~isempty(boot_files)
+        fprintf('Found %d existing bootstrap files\n', length(boot_files));
     end
     
     if run_bootstrap && type >= 1 && type <= 6
@@ -1019,14 +1066,22 @@ if exist('LIMO', 'var') && isfield(LIMO, 'design') && isfield(LIMO.design, 'boot
             mkdir(fullfile(LIMO.dir, 'H0'));
         end
         
-        % Chunking parameters
+        % Chunking parameters - adjusted for incremental processing
         chunk_size = 100;  % Adjust based on memory constraints
-        n_chunks = ceil(LIMO.design.bootstrap / chunk_size);
+        new_bootstraps = LIMO.design.bootstrap - existing_bootstraps;
+        n_chunks = ceil(new_bootstraps / chunk_size);
         chunk_dir = fullfile(LIMO.dir, 'H0', 'chunks');
         
-        fprintf('Total bootstraps: %d\n', LIMO.design.bootstrap);
+        fprintf('Total bootstraps requested: %d\n', LIMO.design.bootstrap);
+        fprintf('Existing bootstraps: %d\n', existing_bootstraps);
+        fprintf('New bootstraps to process: %d\n', new_bootstraps);
         fprintf('Chunk size: %d\n', chunk_size);
         fprintf('Number of chunks: %d\n', n_chunks);
+        
+        if n_chunks == 0
+            fprintf('No new bootstraps needed.\n');
+            run_bootstrap = false;
+        end
         
         % Create chunk directory
         if ~exist(chunk_dir, 'dir')
@@ -1174,17 +1229,24 @@ if exist('LIMO', 'var') && isfield(LIMO, 'design') && isfield(LIMO.design, 'boot
             fprintf('\nProcessing bootstrap in %d chunks...\n', n_chunks);
             
             for chunk = 1:n_chunks
-                chunk_start = (chunk - 1) * chunk_size + 1;
-                chunk_end = min(chunk * chunk_size, LIMO.design.bootstrap);
+                % Calculate indices for new bootstraps only
+                new_chunk_start = (chunk - 1) * chunk_size + 1;
+                new_chunk_end = min(chunk * chunk_size, new_bootstraps);
                 
-                fprintf('\n--- Processing chunk %d/%d (bootstraps %d-%d) ---\n', ...
-                    chunk, n_chunks, chunk_start, chunk_end);
+                % Calculate actual bootstrap indices (offset by existing bootstraps)
+                chunk_start = existing_bootstraps + new_chunk_start;
+                chunk_end = existing_bootstraps + new_chunk_end;
                 
-                % Process this chunk
+                fprintf('\n--- Processing chunk %d/%d (new bootstraps %d-%d, total indices %d-%d) ---\n', ...
+                    chunk, n_chunks, new_chunk_start, new_chunk_end, chunk_start, chunk_end);
+                
+                % Process this chunk with incremental indexing
+                options.existing_bootstraps = existing_bootstraps;
+                options.incremental_mode = strcmpi(LIMO.design.incremental_bootstrap, 'yes');
                 chunk_results = limo_process_bootstrap_chunk(type, centered_data, ...
                     boot_table, chunk_start, chunk_end, LIMO, options);
                 
-                % Save chunk results
+                % Save chunk results with incremental indexing
                 if ~isempty(chunk_results.var_name)
                     fields = fieldnames(chunk_results);
                     for f = 1:length(fields)
@@ -1192,6 +1254,7 @@ if exist('LIMO', 'var') && isfield(LIMO, 'design') && isfield(LIMO.design, 'boot
                         if startsWith(field_name, 'H0_') && ~strcmp(field_name, 'var_name') && ~strcmp(field_name, 'var_names')
                             var_name = chunk_results.var_name;
                             base_name = var_name;
+                            % Save chunk using original function signature
                             limo_save_boot_chunks(chunk_results.(field_name), chunk_dir, ...
                                 base_name, chunk_start, chunk_size, field_name);
                         end
@@ -1202,40 +1265,53 @@ if exist('LIMO', 'var') && isfield(LIMO, 'design') && isfield(LIMO.design, 'boot
             % Merge chunks
             fprintf('\n=== MERGING BOOTSTRAP CHUNKS ===\n');
             
+            % Set merge options for incremental processing
+            merge_options = {'delete_chunks', strcmpi(LIMO.design.keep_bootstrap_chunks, 'no')};
+            if strcmpi(LIMO.design.incremental_bootstrap, 'yes')
+                merge_options = [merge_options, 'incremental', true, 'existing_bootstraps', existing_bootstraps];
+            end
+            
             % Determine which files to merge based on analysis type
             if type == 1
                 var_name = sprintf('H0_one_sample_ttest_parameter_%g', parameter);
                 output_file = fullfile(LIMO.dir, 'H0', [var_name '.mat']);
-                limo_merge_boot_chunks(chunk_dir, var_name, output_file, ...
-                    'var_name', 'H0_one_sample', 'delete_chunks', false);
+                limo_merge_boot_chunks_incremental(chunk_dir, var_name, output_file, ...
+                    'var_name', 'H0_one_sample', merge_options{:});
                 
             elseif type == 2
                 var_name = sprintf('H0_two_samples_ttest_parameter_%g_%g', parameter);
                 output_file = fullfile(LIMO.dir, 'H0', [var_name '.mat']);
-                limo_merge_boot_chunks(chunk_dir, var_name, output_file, ...
-                    'var_name', 'H0_two_samples', 'delete_chunks', false);
+                limo_merge_boot_chunks_incremental(chunk_dir, var_name, output_file, ...
+                    'var_name', 'H0_two_samples', merge_options{:});
                 
             elseif type == 3
                 var_name = sprintf('H0_paired_samples_ttest_parameter_%s', num2str(parameter')');
                 output_file = fullfile(LIMO.dir, 'H0', [var_name '.mat']);
-                limo_merge_boot_chunks(chunk_dir, var_name, output_file, ...
-                    'var_name', 'H0_paired_samples', 'delete_chunks', false);
+                limo_merge_boot_chunks_incremental(chunk_dir, var_name, output_file, ...
+                    'var_name', 'H0_paired_samples', merge_options{:});
                 
             elseif type == 5
                 if LIMO.design.fullfactorial == 0 && LIMO.design.nb_continuous == 0
                     output_file = fullfile(LIMO.dir, 'H0', 'H0_Condition_effect_1.mat');
-                    limo_merge_boot_chunks(chunk_dir, 'H0_Condition_effect_1', output_file, ...
-                        'var_name', 'H0_Condition_effect', 'delete_chunks', false);
+                    limo_merge_boot_chunks_incremental(chunk_dir, 'H0_Condition_effect_1', output_file, ...
+                        'var_name', 'H0_Condition_effect', merge_options{:});
                 end
             end
             
-            % Optional cleanup
-            if usejava('desktop')
-                answer = questdlg('Delete chunk files?', 'Cleanup', 'Yes', 'No', 'No');
-                if strcmp(answer, 'Yes')
+            % Optional cleanup based on settings
+            if strcmpi(LIMO.design.keep_bootstrap_chunks, 'no')
+                if usejava('desktop')
+                    answer = questdlg('Delete chunk files?', 'Cleanup', 'Yes', 'No', 'No');
+                    if strcmp(answer, 'Yes')
+                        rmdir(chunk_dir, 's');
+                        fprintf('Chunk directory deleted\n');
+                    end
+                else
                     rmdir(chunk_dir, 's');
-                    fprintf('Chunk directory deleted\n');
+                    fprintf('Chunk directory deleted (non-desktop mode)\n');
                 end
+            else
+                fprintf('Keeping chunk files in: %s\n', chunk_dir);
             end
             
             fprintf('\n=== BOOTSTRAP PROCESSING COMPLETE ===\n');
@@ -1521,4 +1597,159 @@ function limo_save_rep_anova_bootstrap(data, filepath)
     end
     
     fprintf('    Bootstrap file saved successfully\n');
+end
+
+% =========================================================================
+% INCREMENTAL BOOTSTRAP CHUNK MERGING FUNCTION
+% =========================================================================
+
+function limo_merge_boot_chunks_incremental(chunk_dir, var_pattern, output_file, varargin)
+    % Enhanced chunk merging function with incremental bootstrap support
+    % 
+    % INPUTS:
+    %   chunk_dir - directory containing chunk files
+    %   var_pattern - pattern to match chunk files
+    %   output_file - final output file path
+    %   varargin - options including 'incremental', 'existing_bootstraps', etc.
+    
+    % Parse options
+    options = struct();
+    for i = 1:2:length(varargin)
+        options.(varargin{i}) = varargin{i+1};
+    end
+    
+    % Set defaults
+    if ~isfield(options, 'incremental'), options.incremental = false; end
+    if ~isfield(options, 'existing_bootstraps'), options.existing_bootstraps = 0; end
+    if ~isfield(options, 'delete_chunks'), options.delete_chunks = false; end
+    if ~isfield(options, 'var_name'), options.var_name = var_pattern; end
+    
+    fprintf('Merging chunks for %s (incremental: %s, existing: %d)\n', ...
+        var_pattern, mat2str(options.incremental), options.existing_bootstraps);
+    
+    % Find chunk files
+    chunk_files = dir(fullfile(chunk_dir, [var_pattern '_chunk_*.mat']));
+    if isempty(chunk_files)
+        fprintf('No chunk files found for pattern: %s\n', var_pattern);
+        return;
+    end
+    
+    fprintf('Found %d chunk files to merge\n', length(chunk_files));
+    
+    % Load first chunk to get dimensions
+    first_chunk = load(fullfile(chunk_files(1).folder, chunk_files(1).name));
+    field_names = fieldnames(first_chunk);
+    data_field = field_names{1};  % Assume first field is the data
+    
+    sample_data = first_chunk.(data_field);
+    data_dims = size(sample_data);
+    
+    % Calculate total bootstraps needed
+    total_new_bootstraps = 0;
+    for i = 1:length(chunk_files)
+        chunk_data = load(fullfile(chunk_files(i).folder, chunk_files(i).name));
+        total_new_bootstraps = total_new_bootstraps + size(chunk_data.(data_field), ndims(chunk_data.(data_field)));
+    end
+    
+    % Determine output dimensions
+    output_dims = data_dims;
+    if options.incremental && options.existing_bootstraps > 0
+        output_dims(end) = options.existing_bootstraps + total_new_bootstraps;
+        fprintf('Extending existing %d bootstraps with %d new bootstraps\n', ...
+            options.existing_bootstraps, total_new_bootstraps);
+    else
+        output_dims(end) = total_new_bootstraps;
+        fprintf('Creating new bootstrap file with %d bootstraps\n', total_new_bootstraps);
+    end
+    
+    % Handle incremental merging
+    if options.incremental && options.existing_bootstraps > 0 && exist(output_file, 'file')
+        % Load existing data
+        fprintf('Loading existing bootstrap file: %s\n', output_file);
+        existing_data = load(output_file);
+        existing_field_names = fieldnames(existing_data);
+        
+        % Find the bootstrap variable
+        bootstrap_var = [];
+        for fn = 1:length(existing_field_names)
+            if startsWith(existing_field_names{fn}, 'H0_')
+                bootstrap_var = existing_field_names{fn};
+                break;
+            end
+        end
+        
+        if isempty(bootstrap_var)
+            error('Could not find bootstrap variable in existing file');
+        end
+        
+        % Initialize extended array
+        extended_data = NaN(output_dims);
+        
+        % Copy existing data
+        existing_bootstrap_data = existing_data.(bootstrap_var);
+        if ndims(existing_bootstrap_data) == ndims(extended_data)
+            if ndims(extended_data) == 4
+                extended_data(:,:,:,1:options.existing_bootstraps) = existing_bootstrap_data;
+            elseif ndims(extended_data) == 5
+                extended_data(:,:,:,:,1:options.existing_bootstraps) = existing_bootstrap_data;
+            else
+                extended_data(:,:,1:options.existing_bootstraps) = existing_bootstrap_data;
+            end
+        else
+            error('Dimension mismatch between existing and new bootstrap data');
+        end
+        
+        clear existing_data existing_bootstrap_data;
+        
+    else
+        % Create new array
+        extended_data = NaN(output_dims);
+    end
+    
+    % Merge chunk data
+    current_bootstrap_idx = options.existing_bootstraps + 1;
+    
+    for i = 1:length(chunk_files)
+        fprintf('  Merging chunk %d/%d...\n', i, length(chunk_files));
+        
+        chunk_file_path = fullfile(chunk_files(i).folder, chunk_files(i).name);
+        chunk_data = load(chunk_file_path);
+        
+        chunk_bootstrap_data = chunk_data.(data_field);
+        chunk_size = size(chunk_bootstrap_data, ndims(chunk_bootstrap_data));
+        
+        bootstrap_end_idx = current_bootstrap_idx + chunk_size - 1;
+        
+        % Insert chunk data
+        if ndims(extended_data) == 4
+            extended_data(:,:,:,current_bootstrap_idx:bootstrap_end_idx) = chunk_bootstrap_data;
+        elseif ndims(extended_data) == 5
+            extended_data(:,:,:,:,current_bootstrap_idx:bootstrap_end_idx) = chunk_bootstrap_data;
+        else
+            extended_data(:,:,current_bootstrap_idx:bootstrap_end_idx) = chunk_bootstrap_data;
+        end
+        
+        current_bootstrap_idx = bootstrap_end_idx + 1;
+        
+        % Delete chunk file if requested
+        if options.delete_chunks
+            delete(chunk_file_path);
+        end
+    end
+    
+    % Save merged data
+    fprintf('Saving merged bootstrap data to: %s\n', output_file);
+    
+    % Create variable with appropriate name
+    eval(sprintf('%s = extended_data;', options.var_name));
+    save(output_file, options.var_name, '-v7.3');
+    
+    % Save metadata
+    bootstrap_info.total_bootstraps = size(extended_data, ndims(extended_data));
+    bootstrap_info.existing_bootstraps = options.existing_bootstraps;
+    bootstrap_info.new_bootstraps = total_new_bootstraps;
+    bootstrap_info.creation_time = datestr(now);
+    save(output_file, 'bootstrap_info', '-append');
+    
+    fprintf('Successfully merged %d bootstrap chunks\n', length(chunk_files));
 end

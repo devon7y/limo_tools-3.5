@@ -342,7 +342,7 @@ if LIMO.Level == 1
                     imagesc(timevect,1,scale);
                     caxis([min(scale(:)), max(scale(:))]);
                     color_images_(scale,LIMO); xlabel(' ')
-                    title(mytitle,'Fontsize',18); colorbar
+                    title(char(mytitle),'Fontsize',18); colorbar
                     ylabel(' '); set(gca,'YTickLabel',{''});
                     
                     % ERP plot1 - Roy -
@@ -540,7 +540,7 @@ if LIMO.Level == 1
                             end
                             
                             % Update title for 3D view
-                            title([mytitle ' - 3D View'], 'FontSize', 16);
+                            title([char(mytitle) ' - 3D View'], 'FontSize', 16);
                             
                             % Add threshold plane for reference
                             if p > 0 && p <= 1  % Valid p-value threshold
@@ -620,7 +620,7 @@ if LIMO.Level == 1
                     timevect = linspace(LIMO.data.start,LIMO.data.end,size(Linear_Classification,1));
                     figure;set(gcf,'Color','w');
                     subplot(3,1,[1 2]); % lineplot
-                    plot(timevect,Linear_Classification(:,2),'LineWidth',3);title(mytitle, 'Fontsize', 18);
+                    plot(timevect,Linear_Classification(:,2),'LineWidth',3);title(char(mytitle), 'Fontsize', 18);
                     ylabel('decoding accuracies', 'Fontsize', 14);grid on; axis tight; hold on;
                     plot(timevect, Linear_Classification(:,2) + 2*Linear_Classification(:,3), 'k-','LineWidth',1); hold on;
                     plot(timevect, Linear_Classification(:,2) - 2*Linear_Classification(:,3), 'k-','LineWidth',1)
@@ -1166,7 +1166,7 @@ if LIMO.Level == 1
                 
                 % --
                 axis tight; grid on; box on
-                title(mytitle,'FontSize',19); drawnow;
+                title(char(mytitle),'FontSize',19); drawnow;
                 assignin('base','Plotted_data', average)
                 set(gca,'FontSize',14,'Layer','Top')
                 if strcmpi(LIMO.Analysis,'Frequency')
@@ -1364,7 +1364,7 @@ elseif LIMO.Level == 2
             % Create 3D surface plot for Level 2
             if Type == 1 && ~strcmpi(LIMO.Analysis,'Time-Frequency') && ~strcmpi(LIMO.Analysis,'ITC')
                 % Create 3D figure window
-                main_fig = figure('Color','w','Name',[mytitle ' - 3D View']);
+                main_fig = figure('Color','w','Name',[char(mytitle) ' - 3D View']);
                 
                 % Size figure to match MATLAB desktop
                 try
@@ -1421,7 +1421,7 @@ elseif LIMO.Level == 2
                 xlabel(axes_3d, 'Channels', 'FontSize', 14, 'Color', 'k');
                 ylabel(axes_3d, time_label, 'FontSize', 14, 'Color', 'k');
                 zlabel(axes_3d, 'Statistical values', 'FontSize', 14, 'Color', 'k');
-                title_handle = title(axes_3d, [mytitle ' - 3D View'], 'FontSize', 16);
+                title_handle = title(axes_3d, [char(mytitle) ' - 3D View'], 'FontSize', 16);
                 set(title_handle, 'Color', 'k');
                 set(axes_3d, 'XColor', 'k', 'YColor', 'k', 'ZColor', 'k'); % Black axes lines and ticks
 
@@ -1665,7 +1665,7 @@ elseif LIMO.Level == 2
                 xlabel(axes_3d, 'Channels', 'FontSize', 14, 'Color', 'k');
                 ylabel(axes_3d, time_label, 'FontSize', 14, 'Color', 'k');
                 zlabel(axes_3d, 'Statistical values', 'FontSize', 14, 'Color', 'k');
-                title_handle = title(axes_3d, [mytitle ' - 3D View'], 'FontSize', 16);
+                title_handle = title(axes_3d, [char(mytitle) ' - 3D View'], 'FontSize', 16);
                 set(title_handle, 'Color', 'k');
                 set(axes_3d, 'XColor', 'k', 'YColor', 'k', 'ZColor', 'k'); % Black axes lines and ticks
 
@@ -1751,7 +1751,7 @@ elseif LIMO.Level == 2
                         end
                         
                         % Add 3D view title
-                        title_handle = title([mytitle ' - 3D View'], 'FontSize', 16);
+                        title_handle = title([char(mytitle) ' - 3D View'], 'FontSize', 16);
                         
                         % Add threshold plane for reference
                         if p > 0 && p <= 1  % Valid p-value threshold
@@ -2286,7 +2286,7 @@ elseif LIMO.Level == 2
                 end
                 
                 axis tight; grid on; box on
-                title(mytitle,'FontSize',16); drawnow;
+                title(char(mytitle),'FontSize',16); drawnow;
                 assignin('base','Plotted_data', average)
                 v=axis;axis([v(1) v(2) v(3)+.1*v(3) v(4)+.1*v(4)])
                 set(gca,'FontSize',14);
@@ -2317,7 +2317,7 @@ elseif LIMO.Level == 2
                         zlabel('Spectral Power (A.U.)','FontSize',16)
                     end
                     % --
-                    axis tight; title(mytitle,'FontSize',14); drawnow;
+                    axis tight; title(char(mytitle),'FontSize',14); drawnow;
                     xlabel('Sorted variable','FontSize',14)
                     try
                         set(gca,'XTick',index, 'XTickLabels', reg_values(index));
@@ -2477,7 +2477,7 @@ elseif LIMO.Level == 2
                     ylabel('Spectral Power (A.U.)','FontSize',14)
                 end
                 set(gca,'FontSize',14,'layer','top');
-                title(mytitle,'FontSize',16); drawnow;
+                title(char(mytitle),'FontSize',16); drawnow;
                 trimci = [c ; avg ; b];
                 assignin('base','Plotted_data',trimci);
                 
@@ -2605,7 +2605,7 @@ elseif LIMO.Level == 2
                 h = axis; sig(sig==0)=NaN;
                 plot(xvect,(sig./10+1).*h(3),'r.','MarkerSize',20)
                 set(gca,'FontSize',14,'layer','top');
-                title(mytitle,'FontSize',16); drawnow;
+                title(char(mytitle),'FontSize',16); drawnow;
                 assignin('base','Plotted_data',Gp_difference);
                 
                 % -------------------------
@@ -2731,7 +2731,7 @@ elseif LIMO.Level == 2
                     ylabel('Frequency in Hz','FontSize',14)
                 end
                 set(gca,'FontSize',14,'layer','top');
-                title(mytitle,'FontSize',16); drawnow;
+                title(char(mytitle),'FontSize',16); drawnow;
                 assignin('base','Plotted_data',trimci);
             end
         else
@@ -2760,7 +2760,7 @@ elseif strcmpi(LIMO.Level,'LI')
             figure; set(gcf,'Color','w');
             timevect = linspace(LIMO.data.start*1000,LIMO.data.end*1000,size(M,2));
             imagesc(timevect,1:size(M,1),scale);
-            title(mytitle,'FontSize',18);
+            title(char(mytitle),'FontSize',18);
             color_images_(scale,LIMO);
             assignin('base','Plotted_data',scale)
             assignin('base','Mask_of_sig',mask)
@@ -2895,7 +2895,7 @@ end
 function create_interactive_3d_plot(xvect, toplot, channel_labels, mytitle, xlabel_text)
     % Create interactive 3D plot with rotation capability
     
-    fig = figure('Name', [mytitle ' - Interactive 3D'], 'Color', 'w');
+    fig = figure('Name', [char(mytitle) ' - Interactive 3D'], 'Color', 'w');
     
     % Create channel vector
     num_channels = size(toplot,1);
@@ -2911,7 +2911,7 @@ function create_interactive_3d_plot(xvect, toplot, channel_labels, mytitle, xlab
     xlabel(xlabel_text, 'FontSize', 14);
     ylabel('Statistical values', 'FontSize', 14);
     zlabel('Channels', 'FontSize', 14);
-    title(mytitle, 'FontSize', 16);
+    title(char(mytitle), 'FontSize', 16);
     
     % Colormap and colorbar
     colormap(limo_color_images(toplot));

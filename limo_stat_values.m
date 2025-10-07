@@ -147,7 +147,7 @@ if strcmpi(LIMO.Analysis,'Time-Frequency')
         Pval      = matfile(:,:,:,5);
         MCC_data  = sprintf('H0_%s', FileName);
         name      = FileName(1:strfind(FileName,'ttest')+4);
-        name(strfind(name,'_')) = ' ';
+        name      = strrep(name, '_', ' ');
         titlename = sprintf('%s t-test T values',name);
     elseif strncmp(FileName,'ess_',4)
         effect_nb = eval(FileName(5:end-4));
@@ -199,7 +199,7 @@ else  % same with one less dimention
         Pval      = matfile(:,:,5);
         MCC_data  = sprintf('H0_%s', FileName);
         name      = FileName(1:strfind(FileName,'ttest')+4);
-        name(strfind(name,'_')) = ' ';
+        name      = strrep(name, '_', ' ');
         titlename = sprintf('%s T values',name);
     elseif strncmp(FileName,'ess_',4)
         effect_nb = eval(FileName(max(strfind(FileName,'_'))+1:end-4));

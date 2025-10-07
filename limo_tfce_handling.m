@@ -12,6 +12,8 @@ function [tfce_score,thresholded_maps] = limo_tfce_handling(varargin)
 %        'batch_size' number of bootstraps to process at once (default: 50)
 %        'temp_dir' directory for temporary files (default: a 'tfce_chunks' subfolder in the 'tfce' directory)
 %        'max_workers' maximum parallel workers (default: 4)
+%        'incremental' 'yes' (default) or 'no' - enable incremental processing to add clusters to existing distributions
+%        'keep_chunks' 'yes' (default) or 'no' - keep temporary chunk files after processing
 %
 % OUTPUTS tfce_* files are saved on the drive in a tfce folder
 %         H0_tfce_* files are saved on the drive in the H0 folder
@@ -50,6 +52,8 @@ end
 checkfile = 'yes';
 batch_size = 50;  % Process 50 bootstraps at a time
 temp_dir = fullfile(LIMO.dir, 'tfce', 'tfce_chunks');  % Default directory for temp files
+incremental = 'yes';  % Enable incremental processing by default
+keep_chunks = 'yes';  % Keep chunk files after merging by default
 N = getenv('NUMBER_OF_PROCESSORS');
 if isempty(N)
     N = feature('numcores'); % Fallback to physical cores
@@ -68,6 +72,10 @@ for i=2:2:nargin
         temp_dir = varargin{i+1};
     elseif contains(varargin{i},'max_workers','IgnoreCase',true)
         max_workers = varargin{i+1};
+    elseif contains(varargin{i},'incremental','IgnoreCase',true)
+        incremental = varargin{i+1};
+    elseif contains(varargin{i},'keep_chunks','IgnoreCase',true)
+        keep_chunks = varargin{i+1};
     end
 end
 
@@ -81,6 +89,8 @@ fprintf('\n=== MEMORY-EFFICIENT TFCE SETTINGS ===\n');
 fprintf('Batch size: %d bootstraps\n', batch_size);
 fprintf('Temp directory: %s\n', temp_dir);
 fprintf('Max parallel workers: %d\n', max_workers);
+fprintf('Incremental processing: %s\n', incremental);
+fprintf('Keep chunk files: %s\n', keep_chunks);
 fprintf('=====================================\n\n');
 
 %% quick user check
@@ -172,7 +182,7 @@ if contains(filename,'R2') || ...
     
     if exist(H0filename,'file')
         fprintf('Applying TFCE to null data using batch processing... \n')
-        process_H0_in_batches_fixed(H0filename, H0_tfce_file, LIMO, batch_size, temp_dir, 'R2');
+        process_H0_in_batches_fixed(H0filename, H0_tfce_file, LIMO, batch_size, temp_dir, 'R2', incremental, keep_chunks);
         
         % Handle thresholded maps
         tmp                 = thresholded_maps;     clear thresholded_maps;
@@ -227,7 +237,7 @@ elseif contains(filename,'con') && ~contains(filename,'conditions') || ... % FIX
     
     if exist(H0filename,'file')
         fprintf('Applying TFCE to null data using batch processing... \n')
-        process_H0_in_batches_fixed(H0filename, H0_tfce_file, LIMO, batch_size, temp_dir, 'ttest');
+        process_H0_in_batches_fixed(H0filename, H0_tfce_file, LIMO, batch_size, temp_dir, 'ttest', incremental, keep_chunks);
         
         % Handle thresholded maps
         tmp                 = thresholded_maps;     clear thresholded_maps;
@@ -261,7 +271,7 @@ else % anything else last dimension is F and p (including ANOVA files)
     
     if exist(H0filename,'file')
         fprintf('Applying TFCE to null data using batch processing... \n')
-        process_H0_in_batches_fixed(H0filename, H0_tfce_file, LIMO, batch_size, temp_dir, 'F');
+        process_H0_in_batches_fixed(H0filename, H0_tfce_file, LIMO, batch_size, temp_dir, 'F', incremental, keep_chunks);
         
         % Handle thresholded maps
         tmp                 = thresholded_maps;     clear thresholded_maps;
@@ -270,15 +280,23 @@ else % anything else last dimension is F and p (including ANOVA files)
     end
 end
 
-% Clean up temp directory
-temp_pattern = fullfile(temp_dir, 'tfce_batch_*.mat');
-delete(temp_pattern);
+% Clean up temp directory (optional)
+if strcmpi(keep_chunks, 'no')
+    fprintf('Cleaning up temporary chunk files...\n');
+    temp_pattern = fullfile(temp_dir, 'tfce_batch_*.mat');
+    temp_files = dir(temp_pattern);
+    for i = 1:length(temp_files)
+        delete(fullfile(temp_files(i).folder, temp_files(i).name));
+    end
+else
+    fprintf('Keeping temporary chunk files in: %s\n', temp_dir);
+end
 
 end
 
 %% Helper function for batch processing of H0 data with DIMENSION FIX
 
-function process_H0_in_batches_fixed(H0filename, H0_tfce_file, LIMO, batch_size, temp_dir, test_type)
+function process_H0_in_batches_fixed(H0filename, H0_tfce_file, LIMO, batch_size, temp_dir, test_type, incremental, keep_chunks)
     
     % Use matfile to access H0 data without loading it all
     fprintf('Opening H0 file using memory-mapped access...\n');
@@ -352,7 +370,60 @@ function process_H0_in_batches_fixed(H0filename, H0_tfce_file, LIMO, batch_size,
     actual_bootstraps = min(total_bootstraps, LIMO.design.bootstrap);
     
     fprintf('Total bootstraps in file: %d\n', total_bootstraps);
-    fprintf('Processing bootstraps: %d\n', actual_bootstraps);
+    
+    % ========= INCREMENTAL PROCESSING LOGIC =========
+    existing_bootstraps = 0;
+    existing_valid_bootstraps = [];
+    bootstraps_to_process = 1:actual_bootstraps;
+    
+    if strcmpi(incremental, 'yes') && exist(H0_tfce_file, 'file')
+        fprintf('\n--- Checking existing TFCE file for incremental processing ---\n');
+        
+        try
+            % Load existing file to check dimensions and bootstrap count
+            existing_data = matfile(H0_tfce_file);
+            existing_vars = who(existing_data);
+            
+            if any(strcmp(existing_vars, 'tfce_H0_score'))
+                existing_dims = size(existing_data, 'tfce_H0_score');
+                existing_bootstraps = existing_dims(end);
+                
+                fprintf('Found existing TFCE file with %d bootstraps\n', existing_bootstraps);
+                
+                % Check for metadata about valid bootstraps
+                if any(strcmp(existing_vars, 'valid_bootstraps'))
+                    existing_valid_bootstraps = existing_data.valid_bootstraps;
+                    fprintf('Found metadata: %d valid bootstraps in existing file\n', length(existing_valid_bootstraps));
+                else
+                    % Assume all existing bootstraps are valid
+                    existing_valid_bootstraps = 1:existing_bootstraps;
+                    fprintf('No metadata found, assuming all %d existing bootstraps are valid\n', existing_bootstraps);
+                end
+                
+                % Determine which bootstraps still need processing
+                if actual_bootstraps > existing_bootstraps
+                    bootstraps_to_process = (existing_bootstraps + 1):actual_bootstraps;
+                    fprintf('Will process additional bootstraps: %d to %d\n', existing_bootstraps + 1, actual_bootstraps);
+                else
+                    fprintf('All bootstraps already processed. No additional processing needed.\n');
+                    return;
+                end
+            else
+                fprintf('Existing file found but no tfce_H0_score variable. Starting fresh.\n');
+            end
+        catch ME
+            fprintf('Could not read existing TFCE file: %s\n', ME.message);
+            fprintf('Starting fresh processing...\n');
+        end
+    else
+        if strcmpi(incremental, 'yes')
+            fprintf('No existing TFCE file found. Starting fresh processing.\n');
+        else
+            fprintf('Incremental processing disabled. Starting fresh processing.\n');
+        end
+    end
+    
+    fprintf('Processing bootstraps: %d\n', length(bootstraps_to_process));
     
     % ========= CORRUPTION DETECTION =========
     fprintf('\n--- Checking for corrupted regions ---\n');
@@ -391,40 +462,59 @@ function process_H0_in_batches_fixed(H0filename, H0_tfce_file, LIMO, batch_size,
         end
     end
     
-    valid_bootstraps = find(accessible_bootstraps);
-    n_valid = length(valid_bootstraps);
-    n_corrupted = actual_bootstraps - n_valid;
+    % Filter accessibility check to only bootstraps we need to process
+    bootstraps_accessible = accessible_bootstraps(bootstraps_to_process);
+    valid_bootstraps_to_process = bootstraps_to_process(bootstraps_accessible);
+    n_valid_new = length(valid_bootstraps_to_process);
+    n_corrupted_new = length(bootstraps_to_process) - n_valid_new;
     
-    fprintf('\nCorruption summary:\n');
-    fprintf('  Valid bootstraps: %d (%.1f%%)\n', n_valid, 100*n_valid/actual_bootstraps);
-    if n_corrupted > 0
-        fprintf('  Corrupted bootstraps: %d (%.1f%%)\n', n_corrupted, 100*n_corrupted/actual_bootstraps);
-        fprintf('  Processing only valid bootstraps\n');
+    fprintf('\nCorruption summary for new bootstraps:\n');
+    fprintf('  Valid new bootstraps: %d (%.1f%%)\n', n_valid_new, 100*n_valid_new/length(bootstraps_to_process));
+    if n_corrupted_new > 0
+        fprintf('  Corrupted new bootstraps: %d (%.1f%%)\n', n_corrupted_new, 100*n_corrupted_new/length(bootstraps_to_process));
+        fprintf('  Processing only valid new bootstraps\n');
     end
+    
+    % Combine existing and new valid bootstraps
+    if existing_bootstraps > 0
+        all_valid_bootstraps = [existing_valid_bootstraps(:); valid_bootstraps_to_process(:)];
+    else
+        all_valid_bootstraps = valid_bootstraps_to_process;
+    end
+    n_total_valid = length(all_valid_bootstraps);
     
     % ========= DETERMINE OUTPUT DIMENSIONS =========
     % CRITICAL: Output should match expected LIMO structure
-    % Remove the statistics dimension and use actual valid bootstrap count
+    % Remove the statistics dimension and use total valid bootstrap count
     
     output_dims = H0_dims;
     output_dims(stats_dim_pos) = [];  % Remove statistics dimension
-    output_dims(end) = n_valid;       % Use valid bootstrap count
+    output_dims(end) = n_total_valid; % Use total valid bootstrap count
     
     fprintf('\nOutput TFCE dimensions: %s\n', mat2str(output_dims));
     
-    % Process batches
-    n_batches = ceil(n_valid / batch_size);
-    fprintf('\nProcessing %d valid bootstraps in %d batches\n', n_valid, n_batches);
+    % Process batches (only for new bootstraps)
+    if n_valid_new == 0
+        fprintf('\nNo new bootstraps to process.\n');
+        return;
+    end
+    
+    n_batches = ceil(n_valid_new / batch_size);
+    fprintf('\nProcessing %d new valid bootstraps in %d batches\n', n_valid_new, n_batches);
     
     % Process each batch
     for batch = 1:n_batches
         fprintf('\nBatch %d/%d: ', batch, n_batches);
         
-        % Calculate indices
+        % Calculate indices for new bootstraps only
         valid_start_idx = (batch - 1) * batch_size + 1;
-        valid_end_idx = min(batch * batch_size, n_valid);
-        batch_indices = valid_bootstraps(valid_start_idx:valid_end_idx);
+        valid_end_idx = min(batch * batch_size, n_valid_new);
+        batch_indices = valid_bootstraps_to_process(valid_start_idx:valid_end_idx);
         current_batch_size = length(batch_indices);
+        
+        % Adjust indices for final output (account for existing bootstraps)
+        output_start_idx = existing_bootstraps + valid_start_idx;
+        output_end_idx = existing_bootstraps + valid_end_idx;
         
         fprintf('Loading %d bootstraps...', current_batch_size);
         
@@ -505,7 +595,7 @@ function process_H0_in_batches_fixed(H0filename, H0_tfce_file, LIMO, batch_size,
         
         % Save batch
         temp_file = fullfile(temp_dir, sprintf('tfce_batch_%03d.mat', batch));
-        save(temp_file, 'batch_tfce', 'valid_start_idx', 'valid_end_idx', '-v7.3');
+        save(temp_file, 'batch_tfce', 'output_start_idx', 'output_end_idx', '-v7.3');
         
         fprintf('  Saved batch to %s\n', temp_file);
         clear batch_data batch_tfce par_tfce
@@ -514,16 +604,50 @@ function process_H0_in_batches_fixed(H0filename, H0_tfce_file, LIMO, batch_size,
     % ========= MERGE BATCHES =========
     fprintf('\n--- Merging batch results ---\n');
     
-    % Create output file
-    if exist(H0_tfce_file, 'file')
-        delete(H0_tfce_file);
+    % Handle output file creation or extension
+    if existing_bootstraps == 0 || ~strcmpi(incremental, 'yes')
+        % Create new file
+        if exist(H0_tfce_file, 'file')
+            delete(H0_tfce_file);
+        end
+        fprintf('Creating new output file with dimensions: %s\n', mat2str(output_dims));
+        tfce_H0_score = NaN(output_dims, 'double');
+        
+        % Copy existing data if we're in incremental mode
+        if existing_bootstraps > 0 && strcmpi(incremental, 'yes')
+            fprintf('  Copying %d existing bootstrap results...\n', existing_bootstraps);
+            % Note: This path should not be taken in current logic, but kept for safety
+            existing_data = matfile(H0_tfce_file);
+            if length(output_dims) == 3
+                tfce_H0_score(:,:,1:existing_bootstraps) = existing_data.tfce_H0_score;
+            elseif length(output_dims) == 4
+                tfce_H0_score(:,:,:,1:existing_bootstraps) = existing_data.tfce_H0_score;
+            elseif length(output_dims) == 2
+                tfce_H0_score(:,1:existing_bootstraps) = existing_data.tfce_H0_score;
+            end
+        end
+    else
+        % Extend existing file
+        fprintf('Extending existing output file to dimensions: %s\n', mat2str(output_dims));
+        
+        % Load existing data
+        existing_data = load(H0_tfce_file, 'tfce_H0_score');
+        old_tfce = existing_data.tfce_H0_score;
+        
+        % Create extended array
+        tfce_H0_score = NaN(output_dims, 'double');
+        
+        % Copy existing data
+        if length(output_dims) == 3
+            tfce_H0_score(:,:,1:existing_bootstraps) = old_tfce;
+        elseif length(output_dims) == 4
+            tfce_H0_score(:,:,:,1:existing_bootstraps) = old_tfce;
+        elseif length(output_dims) == 2
+            tfce_H0_score(:,1:existing_bootstraps) = old_tfce;
+        end
+        
+        clear old_tfce existing_data;
     end
-    
-    % Initialize output with correct dimensions
-    fprintf('Creating output file with dimensions: %s\n', mat2str(output_dims));
-    
-    % Save directly to file to avoid memory issues
-    tfce_H0_score = NaN(output_dims, 'double');
     
     % Merge batches
     successful_merges = 0;
@@ -537,7 +661,7 @@ function process_H0_in_batches_fixed(H0filename, H0_tfce_file, LIMO, batch_size,
                 batch_result = load(temp_file);
                 
                 % Insert into output array
-                idx_range = batch_result.valid_start_idx:batch_result.valid_end_idx;
+                idx_range = batch_result.output_start_idx:batch_result.output_end_idx;
                 
                 if length(output_dims) == 3
                     tfce_H0_score(:,:,idx_range) = batch_result.batch_tfce;
@@ -550,8 +674,10 @@ function process_H0_in_batches_fixed(H0filename, H0_tfce_file, LIMO, batch_size,
                 successful_merges = successful_merges + 1;
                 fprintf(' Done\n');
                 
-                % Delete temp file
-                delete(temp_file);
+                % Delete temp file (optional)
+                if strcmpi(keep_chunks, 'no')
+                    delete(temp_file);
+                end
             catch ME
                 warning('Failed to merge batch %d: %s', batch, ME.message);
             end
@@ -562,17 +688,21 @@ function process_H0_in_batches_fixed(H0filename, H0_tfce_file, LIMO, batch_size,
     fprintf('\nSaving final TFCE H0 result to: %s\n', H0_tfce_file);
     save(H0_tfce_file, 'tfce_H0_score', '-v7.3');
     
-    % Save metadata if there were corrupted regions
-    if n_corrupted > 0
-        fprintf('Saving metadata about valid bootstraps...\n');
-        save(H0_tfce_file, 'valid_bootstraps', 'n_valid', 'corrupted_regions', '-append');
+    % Save metadata about valid bootstraps
+    fprintf('Saving metadata about valid bootstraps...\n');
+    save(H0_tfce_file, 'valid_bootstraps', 'all_valid_bootstraps', 'n_total_valid', '-append');
+    
+    % Save corruption information if there were any corrupted bootstraps
+    if n_corrupted_new > 0
+        corrupted_new_bootstraps = bootstraps_to_process(~bootstraps_accessible);
+        save(H0_tfce_file, 'corrupted_new_bootstraps', 'n_corrupted_new', '-append');
     end
     
     fprintf('\nTFCE batch processing complete!\n');
     fprintf('Successfully merged %d/%d batches\n', successful_merges, n_batches);
-    fprintf('Output contains %d TFCE scores\n', n_valid);
+    fprintf('Total output contains %d TFCE scores (%d existing + %d new)\n', n_total_valid, existing_bootstraps, n_valid_new);
     
-    if n_corrupted > 0
-        fprintf('\nNOTE: %d corrupted bootstraps were excluded from analysis.\n', n_corrupted);
+    if n_corrupted_new > 0
+        fprintf('\nNOTE: %d new corrupted bootstraps were excluded from analysis.\n', n_corrupted_new);
     end
 end
