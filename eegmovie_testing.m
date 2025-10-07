@@ -3,10 +3,10 @@
 %% 2-D Scalp Topography Animation using eegmovie (with frame rate control and MP4 export)
 
 % Load your data
-load('/Volumes/T7/ERP Files/Epoched Files 50/paired_ttest2/LIMO.mat');
-data = load('/Volumes/T7/ERP Files/Epoched Files 50/paired_ttest2/paired_samples_ttest_parameter_34.mat');
+load('/Volumes/T7/ERP Files/Epoched Files 50/paired_ttest3/LIMO.mat');
+data = load('/Volumes/T7/ERP Files/Epoched Files 50/paired_ttest3/paired_samples_ttest_parameter_35.mat');
 paired_samples = data.paired_samples;
-average_files = {'/Volumes/T7/ERP Files/Epoched Files 50/derivatives/parameter_3_Mean_of_Mean.mat', '/Volumes/T7/ERP Files/Epoched Files 50/derivatives/parameter_4_Mean_of_Mean.mat'};
+average_files = {'/Volumes/T7/ERP Files/Epoched Files 50/derivatives/parameter_3_Mean_of_Mean.mat', '/Volumes/T7/ERP Files/Epoched Files 50/derivatives/parameter_5_Mean_of_Mean.mat'};
 
 % Load the two Mean_of_Mean files to get the voltage difference
 data1_struct = load(average_files{1});
