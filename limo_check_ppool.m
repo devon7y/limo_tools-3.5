@@ -31,7 +31,9 @@ if any(strcmpi('Parallel Computing Toolbox',arrayfun(@(x) x.Name, addons, "Unifo
             
             % go
             % --
+            fprintf('Creating parallel pool with %d workers...\n', N-1);
             c.parpool(N-1);
+            fprintf('Parallel pool ready with %d workers\n', N-1);
         end
     else
         try

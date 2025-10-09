@@ -1067,7 +1067,7 @@ if exist('LIMO', 'var') && isfield(LIMO, 'design') && isfield(LIMO.design, 'boot
         end
         
         % Chunking parameters - adjusted for incremental processing
-        chunk_size = 100;  % Adjust based on memory constraints
+        chunk_size = 192;  % Optimized for 32 workers (6 bootstraps per worker)
         new_bootstraps = LIMO.design.bootstrap - existing_bootstraps;
         n_chunks = ceil(new_bootstraps / chunk_size);
         chunk_dir = fullfile(LIMO.dir, 'H0', 'chunks');

@@ -50,7 +50,7 @@ end
 
 % Default parameters
 checkfile = 'yes';
-batch_size = 50;  % Process 50 bootstraps at a time
+batch_size = 192;  % Process 192 bootstraps at a time (optimized for 32 workers)
 temp_dir = fullfile(LIMO.dir, 'tfce', 'tfce_chunks');  % Default directory for temp files
 incremental = 'yes';  % Enable incremental processing by default
 keep_chunks = 'yes';  % Keep chunk files after merging by default
@@ -104,7 +104,23 @@ H0filename   = fullfile(LIMO.dir,['H0' filesep 'H0_' filename]);
 
 if strcmpi(checkfile,'yes')
     if exist(tfce_file,'file')
-        answer = questdlg('tfce file already exist - overwrite?','data check','Yes','No','Yes');
+        % Check if running in headless mode (no display available)
+        try
+            feature('ShowFigureWindows');
+            is_headless = false;
+        catch
+            is_headless = true;
+        end
+
+        if is_headless || ~usejava('desktop')
+            % Headless mode: automatically overwrite
+            fprintf('TFCE file exists. Running in headless mode - automatically overwriting.\n');
+            answer = 'Yes';
+        else
+            % Interactive mode: ask user
+            answer = questdlg('tfce file already exist - overwrite?','data check','Yes','No','Yes');
+        end
+
         if strcmp(answer,'Yes')
             LIMO.design.tfce = 1;
             save(fullfile(LIMO.dir,'LIMO.mat'),'LIMO')
@@ -687,10 +703,10 @@ function process_H0_in_batches_fixed(H0filename, H0_tfce_file, LIMO, batch_size,
     % Save final result
     fprintf('\nSaving final TFCE H0 result to: %s\n', H0_tfce_file);
     save(H0_tfce_file, 'tfce_H0_score', '-v7.3');
-    
+
     % Save metadata about valid bootstraps
     fprintf('Saving metadata about valid bootstraps...\n');
-    save(H0_tfce_file, 'valid_bootstraps', 'all_valid_bootstraps', 'n_total_valid', '-append');
+    save(H0_tfce_file, 'all_valid_bootstraps', 'n_total_valid', '-append');
     
     % Save corruption information if there were any corrupted bootstraps
     if n_corrupted_new > 0

@@ -113,38 +113,46 @@ switch analysis_type
         H0_paired_samples = NaN(size(centered_data{1},1), size(centered_data{1},2), 2, n_bootstraps);
         data1_centered = centered_data{1};
         data2_centered = centered_data{2};
-        
-        % Process each bootstrap
-        for b = 1:n_bootstraps
+
+        % Process each bootstrap in parallel
+        p = gcp('nocreate');
+        if ~isempty(p)
+            fprintf('Running parfor loop with %d workers for %d bootstraps\n', p.NumWorkers, n_bootstraps);
+        else
+            fprintf('WARNING: No parallel pool - running serially\n');
+        end
+        parfor b = 1:n_bootstraps
             actual_boot = chunk_start + b - 1;
-            if mod(b, 10) == 0
-                fprintf('  Bootstrap %d/%d (global: %d)\n', b, n_bootstraps, actual_boot);
-            end
-            
+            % Create temporary slice for this bootstrap (channels x timepoints x 2)
+            temp_result = NaN(size(centered_data{1},1), size(centered_data{1},2), 2);
+
             array = intersect(find(~isnan(data1_centered(:,1,1))),find(~isnan(data2_centered(:,1,1))));
             for e = 1:size(array,1)
                 channel = array(e);
-                tmp = data1_centered(channel,:,:); 
-                Y1 = tmp(1,:,find(~isnan(tmp(1,1,:)))); 
-                tmp = data2_centered(channel,:,:); 
-                Y2 = tmp(1,:,find(~isnan(tmp(1,1,:)))); 
-                
+                tmp = data1_centered(channel,:,:);
+                Y1 = tmp(1,:,find(~isnan(tmp(1,1,:))));
+                tmp = data2_centered(channel,:,:);
+                Y2 = tmp(1,:,find(~isnan(tmp(1,1,:))));
+
                 if ~isempty(Y1) && ~isempty(Y2)
                     boot_Y1 = Y1(1,:,boot_indices{channel}(:,actual_boot));
                     boot_Y2 = Y2(1,:,boot_indices{channel}(:,actual_boot));
-                    
+
                     if contains(LIMO.design.method,'Trimmed Mean','IgnoreCase',true)
                         [t_val,~,~,~,p_val,~,~] = limo_yuend_ttest(boot_Y1,boot_Y2);
                     else
                         [~,~,~,~,~,t_val,p_val] = limo_ttest(1,boot_Y1,boot_Y2);
                     end
-                    
-                    H0_paired_samples(channel,:,1,b) = t_val;
-                    H0_paired_samples(channel,:,2,b) = p_val;
+
+                    temp_result(channel,:,1) = t_val;
+                    temp_result(channel,:,2) = p_val;
                 end
             end
+
+            % Assign slice to output - single access with same subscripts
+            H0_paired_samples(:,:,:,b) = temp_result;
         end
-        
+
         chunk_results.H0_paired_samples = H0_paired_samples;
         chunk_results.var_name = sprintf('H0_paired_samples_ttest_parameter_%s', num2str(options.parameter')');
         
