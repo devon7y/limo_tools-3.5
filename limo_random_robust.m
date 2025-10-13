@@ -1067,7 +1067,7 @@ if exist('LIMO', 'var') && isfield(LIMO, 'design') && isfield(LIMO.design, 'boot
         end
         
         % Chunking parameters - adjusted for incremental processing
-        chunk_size = 192;  % Optimized for 32 workers (6 bootstraps per worker)
+        chunk_size = 64;
         new_bootstraps = LIMO.design.bootstrap - existing_bootstraps;
         n_chunks = ceil(new_bootstraps / chunk_size);
         chunk_dir = fullfile(LIMO.dir, 'H0', 'chunks');
@@ -1226,37 +1226,126 @@ if exist('LIMO', 'var') && isfield(LIMO, 'design') && isfield(LIMO.design, 'boot
         
         % Process chunks if bootstrap should run (excluding type 4 regression and type 6 repeated measures)
         if run_bootstrap && type ~= 4 && type ~= 6
-            fprintf('\nProcessing bootstrap in %d chunks...\n', n_chunks);
-            
-            for chunk = 1:n_chunks
-                % Calculate indices for new bootstraps only
-                new_chunk_start = (chunk - 1) * chunk_size + 1;
-                new_chunk_end = min(chunk * chunk_size, new_bootstraps);
-                
-                % Calculate actual bootstrap indices (offset by existing bootstraps)
-                chunk_start = existing_bootstraps + new_chunk_start;
-                chunk_end = existing_bootstraps + new_chunk_end;
-                
-                fprintf('\n--- Processing chunk %d/%d (new bootstraps %d-%d, total indices %d-%d) ---\n', ...
-                    chunk, n_chunks, new_chunk_start, new_chunk_end, chunk_start, chunk_end);
-                
-                % Process this chunk with incremental indexing
-                options.existing_bootstraps = existing_bootstraps;
-                options.incremental_mode = strcmpi(LIMO.design.incremental_bootstrap, 'yes');
-                chunk_results = limo_process_bootstrap_chunk(type, centered_data, ...
-                    boot_table, chunk_start, chunk_end, LIMO, options);
-                
-                % Save chunk results with incremental indexing
-                if ~isempty(chunk_results.var_name)
-                    fields = fieldnames(chunk_results);
-                    for f = 1:length(fields)
-                        field_name = fields{f};
-                        if startsWith(field_name, 'H0_') && ~strcmp(field_name, 'var_name') && ~strcmp(field_name, 'var_names')
-                            var_name = chunk_results.var_name;
-                            base_name = var_name;
-                            % Save chunk using original function signature
-                            limo_save_boot_chunks(chunk_results.(field_name), chunk_dir, ...
-                                base_name, chunk_start, chunk_size, field_name);
+            fprintf('\n=== PARALLEL BOOTSTRAP CHUNK PROCESSING ===\n');
+            fprintf('Processing %d chunks in parallel...\n', n_chunks);
+
+            % Get parallel pool
+            p = gcp('nocreate');
+            if isempty(p)
+                fprintf('Warning: No parallel pool found. Processing serially.\n');
+                use_parallel = false;
+            else
+                fprintf('Using parallel pool with %d workers\n', p.NumWorkers);
+                use_parallel = true;
+            end
+
+            if use_parallel && n_chunks > 1
+                % PARALLEL PROCESSING using parfeval
+                fprintf('Submitting %d chunk jobs to parallel pool...\n', n_chunks);
+
+                % Submit all chunks as parallel jobs
+                futures(n_chunks) = parallel.FevalFuture;  % Pre-allocate array of futures
+                chunk_info = cell(1, n_chunks);
+
+                for chunk = 1:n_chunks
+                    % Calculate indices for new bootstraps only
+                    new_chunk_start = (chunk - 1) * chunk_size + 1;
+                    new_chunk_end = min(chunk * chunk_size, new_bootstraps);
+
+                    % Calculate actual bootstrap indices (offset by existing bootstraps)
+                    chunk_start = existing_bootstraps + new_chunk_start;
+                    chunk_end = existing_bootstraps + new_chunk_end;
+
+                    % Store chunk info for later reference
+                    chunk_info{chunk} = struct('chunk_num', chunk, ...
+                        'new_chunk_start', new_chunk_start, ...
+                        'new_chunk_end', new_chunk_end, ...
+                        'chunk_start', chunk_start, ...
+                        'chunk_end', chunk_end);
+
+                    % Set options for this chunk
+                    chunk_options = options;
+                    chunk_options.existing_bootstraps = existing_bootstraps;
+                    chunk_options.incremental_mode = strcmpi(LIMO.design.incremental_bootstrap, 'yes');
+
+                    % Submit job to parallel pool
+                    futures(chunk) = parfeval(p, @limo_process_bootstrap_chunk, 1, ...
+                        type, centered_data, boot_table, chunk_start, chunk_end, LIMO, chunk_options);
+                end
+
+                fprintf('All chunk jobs submitted. Waiting for completion...\n');
+
+                % Collect results as they complete
+                completed = false(1, n_chunks);
+                n_completed = 0;
+
+                while n_completed < n_chunks
+                    % Wait for next result to complete
+                    [completed_idx, chunk_results] = fetchNext(futures);
+                    n_completed = n_completed + 1;
+                    completed(completed_idx) = true;
+
+                    % Get chunk info
+                    info = chunk_info{completed_idx};
+
+                    fprintf('\n[%d/%d] Chunk %d completed (bootstraps %d-%d, total indices %d-%d)\n', ...
+                        n_completed, n_chunks, info.chunk_num, ...
+                        info.new_chunk_start, info.new_chunk_end, ...
+                        info.chunk_start, info.chunk_end);
+
+                    % Save chunk results immediately
+                    if ~isempty(chunk_results.var_name)
+                        fields = fieldnames(chunk_results);
+                        for f = 1:length(fields)
+                            field_name = fields{f};
+                            if startsWith(field_name, 'H0_') && ~strcmp(field_name, 'var_name') && ~strcmp(field_name, 'var_names')
+                                var_name = chunk_results.var_name;
+                                base_name = var_name;
+                                % Save chunk using original function signature
+                                limo_save_boot_chunks(chunk_results.(field_name), chunk_dir, ...
+                                    base_name, info.chunk_start, chunk_size, field_name);
+                                fprintf('  Saved chunk %d results to disk\n', info.chunk_num);
+                            end
+                        end
+                    end
+                end
+
+                fprintf('\nAll %d chunks completed successfully!\n', n_chunks);
+
+            else
+                % SERIAL PROCESSING (fallback or single chunk)
+                fprintf('Using serial processing (n_chunks=%d, use_parallel=%d)\n', n_chunks, use_parallel);
+
+                for chunk = 1:n_chunks
+                    % Calculate indices for new bootstraps only
+                    new_chunk_start = (chunk - 1) * chunk_size + 1;
+                    new_chunk_end = min(chunk * chunk_size, new_bootstraps);
+
+                    % Calculate actual bootstrap indices (offset by existing bootstraps)
+                    chunk_start = existing_bootstraps + new_chunk_start;
+                    chunk_end = existing_bootstraps + new_chunk_end;
+
+                    fprintf('\n--- Processing chunk %d/%d (new bootstraps %d-%d, total indices %d-%d) ---\n', ...
+                        chunk, n_chunks, new_chunk_start, new_chunk_end, chunk_start, chunk_end);
+
+                    % Process this chunk with incremental indexing
+                    options.existing_bootstraps = existing_bootstraps;
+                    options.incremental_mode = strcmpi(LIMO.design.incremental_bootstrap, 'yes');
+                    chunk_results = limo_process_bootstrap_chunk(type, centered_data, ...
+                        boot_table, chunk_start, chunk_end, LIMO, options);
+
+                    % Save chunk results with incremental indexing
+                    if ~isempty(chunk_results.var_name)
+                        fields = fieldnames(chunk_results);
+                        for f = 1:length(fields)
+                            field_name = fields{f};
+                            if startsWith(field_name, 'H0_') && ~strcmp(field_name, 'var_name') && ~strcmp(field_name, 'var_names')
+                                var_name = chunk_results.var_name;
+                                base_name = var_name;
+                                % Save chunk using original function signature
+                                limo_save_boot_chunks(chunk_results.(field_name), chunk_dir, ...
+                                    base_name, chunk_start, chunk_size, field_name);
+                            end
                         end
                     end
                 end
@@ -1739,17 +1828,21 @@ function limo_merge_boot_chunks_incremental(chunk_dir, var_pattern, output_file,
     
     % Save merged data
     fprintf('Saving merged bootstrap data to: %s\n', output_file);
-    
+
     % Create variable with appropriate name
     eval(sprintf('%s = extended_data;', options.var_name));
     save(output_file, options.var_name, '-v7.3');
-    
-    % Save metadata
+
+    % Save metadata to separate file (LIMO expects only the data variable in the main H0 file)
+    [filepath, filename, ext] = fileparts(output_file);
+    metadata_file = fullfile(filepath, [filename '_metadata.mat']);
+
     bootstrap_info.total_bootstraps = size(extended_data, ndims(extended_data));
     bootstrap_info.existing_bootstraps = options.existing_bootstraps;
     bootstrap_info.new_bootstraps = total_new_bootstraps;
     bootstrap_info.creation_time = datestr(now);
-    save(output_file, 'bootstrap_info', '-append');
-    
+    save(metadata_file, 'bootstrap_info', '-v7.3');
+
     fprintf('Successfully merged %d bootstrap chunks\n', length(chunk_files));
+    fprintf('Metadata saved to: %s\n', metadata_file);
 end

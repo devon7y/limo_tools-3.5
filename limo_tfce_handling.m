@@ -50,7 +50,7 @@ end
 
 % Default parameters
 checkfile = 'yes';
-batch_size = 192;  % Process 192 bootstraps at a time (optimized for 32 workers)
+batch_size = 64;  % Process 192 bootstraps at a time (optimized for 32 workers)
 temp_dir = fullfile(LIMO.dir, 'tfce', 'tfce_chunks');  % Default directory for temp files
 incremental = 'yes';  % Enable incremental processing by default
 keep_chunks = 'yes';  % Keep chunk files after merging by default
@@ -394,26 +394,36 @@ function process_H0_in_batches_fixed(H0filename, H0_tfce_file, LIMO, batch_size,
     
     if strcmpi(incremental, 'yes') && exist(H0_tfce_file, 'file')
         fprintf('\n--- Checking existing TFCE file for incremental processing ---\n');
-        
+
         try
             % Load existing file to check dimensions and bootstrap count
             existing_data = matfile(H0_tfce_file);
             existing_vars = who(existing_data);
-            
+
             if any(strcmp(existing_vars, 'tfce_H0_score'))
                 existing_dims = size(existing_data, 'tfce_H0_score');
                 existing_bootstraps = existing_dims(end);
-                
+
                 fprintf('Found existing TFCE file with %d bootstraps\n', existing_bootstraps);
-                
-                % Check for metadata about valid bootstraps
-                if any(strcmp(existing_vars, 'valid_bootstraps'))
-                    existing_valid_bootstraps = existing_data.valid_bootstraps;
-                    fprintf('Found metadata: %d valid bootstraps in existing file\n', length(existing_valid_bootstraps));
+
+                % Check for metadata about valid bootstraps in separate metadata file
+                [filepath, filename, ext] = fileparts(H0_tfce_file);
+                metadata_file = fullfile(filepath, [filename '_metadata.mat']);
+
+                if exist(metadata_file, 'file')
+                    metadata = load(metadata_file);
+                    if isfield(metadata, 'all_valid_bootstraps')
+                        existing_valid_bootstraps = metadata.all_valid_bootstraps;
+                        fprintf('Found metadata: %d valid bootstraps in existing file\n', length(existing_valid_bootstraps));
+                    else
+                        % Assume all existing bootstraps are valid
+                        existing_valid_bootstraps = 1:existing_bootstraps;
+                        fprintf('No valid bootstrap list in metadata, assuming all %d existing bootstraps are valid\n', existing_bootstraps);
+                    end
                 else
                     % Assume all existing bootstraps are valid
                     existing_valid_bootstraps = 1:existing_bootstraps;
-                    fprintf('No metadata found, assuming all %d existing bootstraps are valid\n', existing_bootstraps);
+                    fprintf('No metadata file found, assuming all %d existing bootstraps are valid\n', existing_bootstraps);
                 end
                 
                 % Determine which bootstraps still need processing
@@ -516,105 +526,175 @@ function process_H0_in_batches_fixed(H0filename, H0_tfce_file, LIMO, batch_size,
     end
     
     n_batches = ceil(n_valid_new / batch_size);
-    fprintf('\nProcessing %d new valid bootstraps in %d batches\n', n_valid_new, n_batches);
-    
-    % Process each batch
-    for batch = 1:n_batches
-        fprintf('\nBatch %d/%d: ', batch, n_batches);
-        
-        % Calculate indices for new bootstraps only
-        valid_start_idx = (batch - 1) * batch_size + 1;
-        valid_end_idx = min(batch * batch_size, n_valid_new);
-        batch_indices = valid_bootstraps_to_process(valid_start_idx:valid_end_idx);
-        current_batch_size = length(batch_indices);
-        
-        % Adjust indices for final output (account for existing bootstraps)
-        output_start_idx = existing_bootstraps + valid_start_idx;
-        output_end_idx = existing_bootstraps + valid_end_idx;
-        
-        fprintf('Loading %d bootstraps...', current_batch_size);
-        
-        % Extract batch data with correct indexing
-        try
-            % Pre-allocate based on data structure (without stats dimension)
-            if length(H0_dims) == 4  % [channels, time, stats, boots]
-                batch_data = NaN(H0_dims(1), H0_dims(2), current_batch_size);
-                
-                % Read data
-                for idx = 1:current_batch_size
-                    boot_num = batch_indices(idx);
-                    if stats_dim_pos == 3
-                        batch_data(:,:,idx) = m.(H0_varname)(:,:,stat_index,boot_num);
-                    else
-                        % Handle unexpected dimension order
-                        temp = m.(H0_varname)(:,:,:,boot_num);
-                        batch_data(:,:,idx) = temp(:,:,stat_index);
+    fprintf('\n=== PARALLEL TFCE BATCH PROCESSING ===\n');
+    fprintf('Processing %d new valid bootstraps in %d batches\n', n_valid_new, n_batches);
+
+    % Get parallel pool
+    p = gcp('nocreate');
+    if isempty(p)
+        fprintf('Warning: No parallel pool found. Processing serially.\n');
+        use_parallel_batches = false;
+    else
+        fprintf('Using parallel pool with %d workers for batch processing\n', p.NumWorkers);
+        use_parallel_batches = true;
+    end
+
+    if use_parallel_batches && n_batches > 1
+        % PARALLEL BATCH PROCESSING
+        fprintf('Submitting %d TFCE batch jobs in parallel...\n', n_batches);
+
+        % Submit all batches as parallel jobs
+        futures(n_batches) = parallel.FevalFuture;  % Pre-allocate array of futures
+        batch_info = cell(1, n_batches);
+
+        for batch = 1:n_batches
+            % Calculate indices for new bootstraps only
+            valid_start_idx = (batch - 1) * batch_size + 1;
+            valid_end_idx = min(batch * batch_size, n_valid_new);
+            batch_indices = valid_bootstraps_to_process(valid_start_idx:valid_end_idx);
+            current_batch_size = length(batch_indices);
+
+            % Adjust indices for final output (account for existing bootstraps)
+            output_start_idx = existing_bootstraps + valid_start_idx;
+            output_end_idx = existing_bootstraps + valid_end_idx;
+
+            % Store batch info
+            batch_info{batch} = struct('batch_num', batch, ...
+                'batch_indices', batch_indices, ...
+                'current_batch_size', current_batch_size, ...
+                'output_start_idx', output_start_idx, ...
+                'output_end_idx', output_end_idx);
+
+            % Submit parallel job to process this batch
+            futures(batch) = parfeval(p, @process_tfce_batch_parallel, 1, ...
+                m, H0_varname, H0_dims, batch_indices, stat_index, stats_dim_pos, ...
+                LIMO.data.neighbouring_matrix, output_start_idx, output_end_idx);
+        end
+
+        fprintf('All %d TFCE batch jobs submitted. Waiting for completion...\n', n_batches);
+
+        % Collect results as they complete
+        n_completed = 0;
+        while n_completed < n_batches
+            [completed_idx, result_struct] = fetchNext(futures);
+            n_completed = n_completed + 1;
+
+            info = batch_info{completed_idx};
+            fprintf('[%d/%d] TFCE Batch %d completed (%d bootstraps)\n', ...
+                n_completed, n_batches, info.batch_num, info.current_batch_size);
+
+            % Save batch results immediately
+            temp_file = fullfile(temp_dir, sprintf('tfce_batch_%03d.mat', info.batch_num));
+            batch_tfce = result_struct.batch_tfce;
+            output_start_idx = result_struct.output_start_idx;
+            output_end_idx = result_struct.output_end_idx;
+            save(temp_file, 'batch_tfce', 'output_start_idx', 'output_end_idx', '-v7.3');
+            fprintf('  Saved TFCE batch %d to %s\n', info.batch_num, temp_file);
+        end
+
+        fprintf('\nAll %d TFCE batches completed successfully!\n', n_batches);
+
+    else
+        % SERIAL BATCH PROCESSING (fallback)
+        fprintf('Using serial batch processing (n_batches=%d, use_parallel=%d)\n', n_batches, use_parallel_batches);
+
+        for batch = 1:n_batches
+            fprintf('\nBatch %d/%d: ', batch, n_batches);
+
+            % Calculate indices for new bootstraps only
+            valid_start_idx = (batch - 1) * batch_size + 1;
+            valid_end_idx = min(batch * batch_size, n_valid_new);
+            batch_indices = valid_bootstraps_to_process(valid_start_idx:valid_end_idx);
+            current_batch_size = length(batch_indices);
+
+            % Adjust indices for final output (account for existing bootstraps)
+            output_start_idx = existing_bootstraps + valid_start_idx;
+            output_end_idx = existing_bootstraps + valid_end_idx;
+
+            fprintf('Loading %d bootstraps...', current_batch_size);
+
+            % Extract batch data with correct indexing
+            try
+                % Pre-allocate based on data structure (without stats dimension)
+                if length(H0_dims) == 4  % [channels, time, stats, boots]
+                    batch_data = NaN(H0_dims(1), H0_dims(2), current_batch_size);
+
+                    % Read data
+                    for idx = 1:current_batch_size
+                        boot_num = batch_indices(idx);
+                        if stats_dim_pos == 3
+                            batch_data(:,:,idx) = m.(H0_varname)(:,:,stat_index,boot_num);
+                        else
+                            % Handle unexpected dimension order
+                            temp = m.(H0_varname)(:,:,:,boot_num);
+                            batch_data(:,:,idx) = temp(:,:,stat_index);
+                        end
+                    end
+
+                elseif length(H0_dims) == 5  % [channels, freq, time, stats, boots] for TF
+                    batch_data = NaN(H0_dims(1), H0_dims(2), H0_dims(3), current_batch_size);
+
+                    % Read data
+                    for idx = 1:current_batch_size
+                        boot_num = batch_indices(idx);
+                        if stats_dim_pos == 4
+                            batch_data(:,:,:,idx) = m.(H0_varname)(:,:,:,stat_index,boot_num);
+                        else
+                            % Handle unexpected dimension order
+                            temp = m.(H0_varname)(:,:,:,:,boot_num);
+                            batch_data(:,:,:,idx) = squeeze(temp(:,:,:,stat_index));
+                        end
+                    end
+                else
+                    error('Unexpected H0 dimensions: %s', mat2str(H0_dims));
+                end
+
+            catch ME
+                error('Failed to read batch %d: %s', batch, ME.message);
+            end
+
+            % Process batch with TFCE
+            fprintf(' Computing TFCE...\n');
+
+            % Pre-allocate results matching batch_data dimensions
+            batch_tfce = NaN(size(batch_data), 'double');
+
+            % Process each bootstrap
+            par_tfce = cell(1, current_batch_size);
+            parfor b = 1:current_batch_size
+                if H0_dims(1) == 1  % Single channel
+                    if length(size(batch_data)) == 3  % Time-frequency
+                        par_tfce{b} = limo_tfce(2, squeeze(batch_data(:,:,b)), [], 0);
+                    else  % Time only
+                        par_tfce{b} = limo_tfce(1, squeeze(batch_data(:,b)), LIMO.data.neighbouring_matrix, 0);
+                    end
+                else  % Multiple channels
+                    if length(size(batch_data)) == 4  % Time-frequency
+                        par_tfce{b} = limo_tfce(3, squeeze(batch_data(:,:,:,b)), LIMO.data.neighbouring_matrix, 0);
+                    else  % Time only
+                        par_tfce{b} = limo_tfce(2, squeeze(batch_data(:,:,b)), LIMO.data.neighbouring_matrix, 0);
                     end
                 end
-                
-            elseif length(H0_dims) == 5  % [channels, freq, time, stats, boots] for TF
-                batch_data = NaN(H0_dims(1), H0_dims(2), H0_dims(3), current_batch_size);
-                
-                % Read data
-                for idx = 1:current_batch_size
-                    boot_num = batch_indices(idx);
-                    if stats_dim_pos == 4
-                        batch_data(:,:,:,idx) = m.(H0_varname)(:,:,:,stat_index,boot_num);
-                    else
-                        % Handle unexpected dimension order
-                        temp = m.(H0_varname)(:,:,:,:,boot_num);
-                        batch_data(:,:,:,idx) = squeeze(temp(:,:,:,stat_index));
-                    end
-                end
-            else
-                error('Unexpected H0 dimensions: %s', mat2str(H0_dims));
             end
-            
-        catch ME
-            error('Failed to read batch %d: %s', batch, ME.message);
-        end
-        
-        % Process batch with TFCE
-        fprintf(' Computing TFCE...\n');
-        
-        % Pre-allocate results matching batch_data dimensions
-        batch_tfce = NaN(size(batch_data), 'double');
-        
-        % Process each bootstrap
-        par_tfce = cell(1, current_batch_size);
-        parfor b = 1:current_batch_size
-            if H0_dims(1) == 1  % Single channel
-                if length(size(batch_data)) == 3  % Time-frequency
-                    par_tfce{b} = limo_tfce(2, squeeze(batch_data(:,:,b)), [], 0);
-                else  % Time only
-                    par_tfce{b} = limo_tfce(1, squeeze(batch_data(:,b)), LIMO.data.neighbouring_matrix, 0);
-                end
-            else  % Multiple channels
-                if length(size(batch_data)) == 4  % Time-frequency
-                    par_tfce{b} = limo_tfce(3, squeeze(batch_data(:,:,:,b)), LIMO.data.neighbouring_matrix, 0);
-                else  % Time only
-                    par_tfce{b} = limo_tfce(2, squeeze(batch_data(:,:,b)), LIMO.data.neighbouring_matrix, 0);
+
+            % Store results
+            for b = 1:current_batch_size
+                if length(size(batch_tfce)) == 3
+                    batch_tfce(:,:,b) = double(par_tfce{b});
+                elseif length(size(batch_tfce)) == 4
+                    batch_tfce(:,:,:,b) = double(par_tfce{b});
+                else
+                    batch_tfce(:,b) = double(par_tfce{b});
                 end
             end
+
+            % Save batch
+            temp_file = fullfile(temp_dir, sprintf('tfce_batch_%03d.mat', batch));
+            save(temp_file, 'batch_tfce', 'output_start_idx', 'output_end_idx', '-v7.3');
+
+            fprintf('  Saved batch to %s\n', temp_file);
+            clear batch_data batch_tfce par_tfce
         end
-        
-        % Store results
-        for b = 1:current_batch_size
-            if length(size(batch_tfce)) == 3
-                batch_tfce(:,:,b) = double(par_tfce{b});
-            elseif length(size(batch_tfce)) == 4
-                batch_tfce(:,:,:,b) = double(par_tfce{b});
-            else
-                batch_tfce(:,b) = double(par_tfce{b});
-            end
-        end
-        
-        % Save batch
-        temp_file = fullfile(temp_dir, sprintf('tfce_batch_%03d.mat', batch));
-        save(temp_file, 'batch_tfce', 'output_start_idx', 'output_end_idx', '-v7.3');
-        
-        fprintf('  Saved batch to %s\n', temp_file);
-        clear batch_data batch_tfce par_tfce
     end
     
     % ========= MERGE BATCHES =========
@@ -704,15 +784,19 @@ function process_H0_in_batches_fixed(H0filename, H0_tfce_file, LIMO, batch_size,
     fprintf('\nSaving final TFCE H0 result to: %s\n', H0_tfce_file);
     save(H0_tfce_file, 'tfce_H0_score', '-v7.3');
 
-    % Save metadata about valid bootstraps
+    % Save metadata about valid bootstraps to a separate file
+    % (LIMO expects only tfce_H0_score in the main file)
     fprintf('Saving metadata about valid bootstraps...\n');
-    save(H0_tfce_file, 'all_valid_bootstraps', 'n_total_valid', '-append');
-    
+    [filepath, filename, ext] = fileparts(H0_tfce_file);
+    metadata_file = fullfile(filepath, [filename '_metadata.mat']);
+    save(metadata_file, 'all_valid_bootstraps', 'n_total_valid', '-v7.3');
+
     % Save corruption information if there were any corrupted bootstraps
     if n_corrupted_new > 0
         corrupted_new_bootstraps = bootstraps_to_process(~bootstraps_accessible);
-        save(H0_tfce_file, 'corrupted_new_bootstraps', 'n_corrupted_new', '-append');
+        save(metadata_file, 'corrupted_new_bootstraps', 'n_corrupted_new', '-append');
     end
+    fprintf('Metadata saved to: %s\n', metadata_file);
     
     fprintf('\nTFCE batch processing complete!\n');
     fprintf('Successfully merged %d/%d batches\n', successful_merges, n_batches);
@@ -721,4 +805,91 @@ function process_H0_in_batches_fixed(H0filename, H0_tfce_file, LIMO, batch_size,
     if n_corrupted_new > 0
         fprintf('\nNOTE: %d new corrupted bootstraps were excluded from analysis.\n', n_corrupted_new);
     end
+end
+
+%% Helper function for parallel TFCE batch processing
+function result_struct = process_tfce_batch_parallel(m, H0_varname, H0_dims, batch_indices, stat_index, stats_dim_pos, neighbouring_matrix, output_start_idx, output_end_idx)
+    % PROCESS_TFCE_BATCH_PARALLEL - Process a single TFCE batch in parallel
+    %
+    % This function is designed to be called by parfeval for parallel batch processing
+
+    current_batch_size = length(batch_indices);
+
+    % Extract batch data with correct indexing
+    try
+        % Pre-allocate based on data structure (without stats dimension)
+        if length(H0_dims) == 4  % [channels, time, stats, boots]
+            batch_data = NaN(H0_dims(1), H0_dims(2), current_batch_size);
+
+            % Read data
+            for idx = 1:current_batch_size
+                boot_num = batch_indices(idx);
+                if stats_dim_pos == 3
+                    batch_data(:,:,idx) = m.(H0_varname)(:,:,stat_index,boot_num);
+                else
+                    % Handle unexpected dimension order
+                    temp = m.(H0_varname)(:,:,:,boot_num);
+                    batch_data(:,:,idx) = temp(:,:,stat_index);
+                end
+            end
+
+        elseif length(H0_dims) == 5  % [channels, freq, time, stats, boots] for TF
+            batch_data = NaN(H0_dims(1), H0_dims(2), H0_dims(3), current_batch_size);
+
+            % Read data
+            for idx = 1:current_batch_size
+                boot_num = batch_indices(idx);
+                if stats_dim_pos == 4
+                    batch_data(:,:,:,idx) = m.(H0_varname)(:,:,:,stat_index,boot_num);
+                else
+                    % Handle unexpected dimension order
+                    temp = m.(H0_varname)(:,:,:,:,boot_num);
+                    batch_data(:,:,:,idx) = squeeze(temp(:,:,:,stat_index));
+                end
+            end
+        else
+            error('Unexpected H0 dimensions: %s', mat2str(H0_dims));
+        end
+
+    catch ME
+        error('Failed to read batch data: %s', ME.message);
+    end
+
+    % Process batch with TFCE
+    % Pre-allocate results matching batch_data dimensions
+    batch_tfce = NaN(size(batch_data), 'double');
+
+    % Process each bootstrap (nested parallel processing)
+    par_tfce = cell(1, current_batch_size);
+    parfor b = 1:current_batch_size
+        if H0_dims(1) == 1  % Single channel
+            if length(size(batch_data)) == 3  % Time-frequency
+                par_tfce{b} = limo_tfce(2, squeeze(batch_data(:,:,b)), [], 0);
+            else  % Time only
+                par_tfce{b} = limo_tfce(1, squeeze(batch_data(:,b)), neighbouring_matrix, 0);
+            end
+        else  % Multiple channels
+            if length(size(batch_data)) == 4  % Time-frequency
+                par_tfce{b} = limo_tfce(3, squeeze(batch_data(:,:,:,b)), neighbouring_matrix, 0);
+            else  % Time only
+                par_tfce{b} = limo_tfce(2, squeeze(batch_data(:,:,b)), neighbouring_matrix, 0);
+            end
+        end
+    end
+
+    % Store results
+    for b = 1:current_batch_size
+        if length(size(batch_tfce)) == 3
+            batch_tfce(:,:,b) = double(par_tfce{b});
+        elseif length(size(batch_tfce)) == 4
+            batch_tfce(:,:,:,b) = double(par_tfce{b});
+        else
+            batch_tfce(:,b) = double(par_tfce{b});
+        end
+    end
+
+    % Return results as struct
+    result_struct = struct('batch_tfce', batch_tfce, ...
+        'output_start_idx', output_start_idx, ...
+        'output_end_idx', output_end_idx);
 end

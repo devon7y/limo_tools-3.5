@@ -28,12 +28,13 @@ if any(strcmpi('Parallel Computing Toolbox',arrayfun(@(x) x.Name, addons, "Unifo
             c            = parcluster;
             c.NumWorkers = N;
             % saveProfile(c);
-            
+
             % go
             % --
-            fprintf('Creating parallel pool with %d workers...\n', N-1);
-            c.parpool(N-1);
-            fprintf('Parallel pool ready with %d workers\n', N-1);
+            % Use all available CPUs for dedicated supercomputer/HPC environments
+            fprintf('Creating parallel pool with %d workers (all available CPUs)...\n', N);
+            c.parpool(N);
+            fprintf('Parallel pool ready with %d workers\n', N);
         end
     else
         try
